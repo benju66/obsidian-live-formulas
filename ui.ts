@@ -1,10 +1,9 @@
 import { Menu } from 'obsidian';
 import { evaluateMath } from './math';
 
-// NEW: This "Memory Variable" survives Obsidian's DOM re-renders!
 let nextFocusCell: string | null = null;
-
-export const renderTableUI = (el: HTMLElement, tableData: any, saveContent: (newData: any) => Promise<void>) => {
+// Add "settings: any" to the function signature
+export const renderTableUI = (el: HTMLElement, tableData: any, settings: any, saveContent: (newData: any) => Promise<void>) => {
     
     // --- 1. DYNAMIC GRID CALCULATOR ---
     const cellIds = Object.keys(tableData);
@@ -138,14 +137,21 @@ export const renderTableUI = (el: HTMLElement, tableData: any, saveContent: (new
                 input.style.fontFamily = 'monospace';
             }
 
-            // --- FOCUS RECOVERY ---
-            // When the new table renders, check if this cell is the one we marked for focus
+            // --- UPGRADED FOCUS RECOVERY ---
             if (nextFocusCell === cellId) {
-                setTimeout(() => {
-                    input.focus();
-                    input.setSelectionRange(input.value.length, input.value.length);
-                }, 50); // A tiny delay ensures Obsidian is fully done updating the DOM
-                nextFocusCell = null; // Wipe the memory
+                let attempts = 0;
+                const tryFocus = () => {
+                    // Make sure Obsidian has fully attached the new cell to the document before focusing
+                    if (document.body.contains(input)) {
+                        input.focus();
+                        input.setSelectionRange(input.value.length, input.value.length);
+                    } else if (attempts < 20) {
+                        attempts++;
+                        setTimeout(tryFocus, 10); // Check again in 10ms
+                    }
+                };
+                setTimeout(tryFocus, 10);
+                nextFocusCell = null; 
             }
 
             // --- INTERACTIVITY ---
@@ -172,26 +178,26 @@ export const renderTableUI = (el: HTMLElement, tableData: any, saveContent: (new
 
             // --- KEYBOARD NAVIGATION ---
             input.addEventListener('keydown', (e) => {
-                // Handle Enter (Up/Down)
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     const nextRow = e.shiftKey ? r - 1 : r + 1;
                     
                     if (nextRow >= 1 && nextRow <= rows) {
-                        nextFocusCell = `${c}${nextRow}`; // Write to memory
-                        input.blur(); // Trigger save & re-render
+                        nextFocusCell = `${c}${nextRow}`; 
                         
-                        // Fallback: If no re-render happens (value didn't change), move focus instantly
-                        setTimeout(() => {
-                            const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`) as HTMLInputElement;
-                            if (nextInput) nextInput.focus();
-                        }, 10);
+                        // FIX: Directly pass focus to the next input in the current DOM.
+                        // This prevents Obsidian from stealing focus, while still triggering the 'blur' save!
+                        const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`) as HTMLInputElement;
+                        if (nextInput) {
+                            nextInput.focus(); 
+                        } else {
+                            input.blur();
+                        }
                     } else {
                         input.blur();
                     }
                 }
 
-                // Handle Tab (Left/Right)
                 if (e.key === 'Tab') {
                     const colIndex = cols.indexOf(c);
                     let nextCol = c;
@@ -204,8 +210,6 @@ export const renderTableUI = (el: HTMLElement, tableData: any, saveContent: (new
                         if (colIndex > 0) nextCol = cols[colIndex - 1];
                         else if (r > 1) { nextCol = cols[cols.length - 1]; nextRow = r - 1; }
                     }
-                    
-                    // Write the next tab destination to memory in case the DOM gets destroyed!
                     nextFocusCell = `${nextCol}${nextRow}`;
                 }
             });

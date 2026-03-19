@@ -1,9 +1,18 @@
 import { Plugin, MarkdownPostProcessorContext } from 'obsidian';
 import { renderTableUI } from './ui';
+import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
 
 export default class LiveFormulasPlugin extends Plugin {
+    settings: LiveFormulasSettings;
+
     async onload() {
-        console.log('Loading Live Formulas Plugin (Modular Version)...');
+        console.log('Loading Live Formulas Plugin (Settings Version)...');
+
+        // 1. Load the settings
+        await this.loadSettings();
+
+        // 2. Add the settings tab to Obsidian's menu
+        this.addSettingTab(new LiveFormulasSettingTab(this.app, this));
 
         this.registerMarkdownCodeBlockProcessor(
             'live-table',
@@ -17,24 +26,33 @@ export default class LiveFormulasPlugin extends Plugin {
                     return;
                 }
 
-                // The background saver logic stays here so it can use Obsidian's "app.workspace" tools
+                // PERFORMANCE FIX: Use app.vault.process to queue writes and prevent lag on large files
                 const saveContent = async (newData: any) => {
                     const section = ctx.getSectionInfo(el);
                     if (!section) return; 
                     const file = this.app.workspace.getActiveFile();
                     if (!file) return;
 
-                    const content = await this.app.vault.read(file);
-                    const lines = content.split('\n');
-                    const newJson = JSON.stringify(newData, null, 2);
-                    lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
-                    await this.app.vault.modify(file, lines.join('\n'));
+                    await this.app.vault.process(file, (data) => {
+                        const lines = data.split('\n');
+                        const newJson = JSON.stringify(newData, null, 2);
+                        lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
+                        return lines.join('\n');
+                    });
                 };
 
-                // Pass everything over to our UI module to draw the table!
-                renderTableUI(el, tableData, saveContent);
+                // 3. Pass the settings down to the UI so it can use them!
+                renderTableUI(el, tableData, this.settings, saveContent);
             }
         );
+    }
+
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
     }
 
     onunload() {

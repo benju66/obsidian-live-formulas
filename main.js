@@ -22,7 +22,7 @@ __export(main_exports, {
   default: () => LiveFormulasPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // ui.ts
 var import_obsidian = require("obsidian");
@@ -73,7 +73,7 @@ var evaluateMath = (formula, tableData, depth = 0) => {
 
 // ui.ts
 var nextFocusCell = null;
-var renderTableUI = (el, tableData, saveContent) => {
+var renderTableUI = (el, tableData, settings, saveContent) => {
   const cellIds = Object.keys(tableData);
   let maxRow = 1;
   let maxColCode = 65;
@@ -204,10 +204,17 @@ var renderTableUI = (el, tableData, saveContent) => {
         input.style.fontFamily = "monospace";
       }
       if (nextFocusCell === cellId) {
-        setTimeout(() => {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        }, 50);
+        let attempts = 0;
+        const tryFocus = () => {
+          if (document.body.contains(input)) {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+          } else if (attempts < 20) {
+            attempts++;
+            setTimeout(tryFocus, 10);
+          }
+        };
+        setTimeout(tryFocus, 10);
         nextFocusCell = null;
       }
       input.addEventListener("focus", () => {
@@ -236,12 +243,12 @@ var renderTableUI = (el, tableData, saveContent) => {
           const nextRow = e.shiftKey ? r - 1 : r + 1;
           if (nextRow >= 1 && nextRow <= rows) {
             nextFocusCell = `${c}${nextRow}`;
-            input.blur();
-            setTimeout(() => {
-              const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`);
-              if (nextInput)
-                nextInput.focus();
-            }, 10);
+            const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`);
+            if (nextInput) {
+              nextInput.focus();
+            } else {
+              input.blur();
+            }
           } else {
             input.blur();
           }
@@ -326,10 +333,38 @@ var renderTableUI = (el, tableData, saveContent) => {
   });
 };
 
+// settings.ts
+var import_obsidian2 = require("obsidian");
+var DEFAULT_SETTINGS = {
+  currencySymbol: "$",
+  enableHoverButtons: true
+};
+var LiveFormulasSettingTab = class extends import_obsidian2.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Live Table Formulas Settings" });
+    new import_obsidian2.Setting(containerEl).setName("Currency Symbol").setDesc("Which symbol should be used when formatting formula outputs?").addText((text) => text.setPlaceholder("e.g. $ or \u20AC").setValue(this.plugin.settings.currencySymbol).onChange(async (value) => {
+      this.plugin.settings.currencySymbol = value || "$";
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian2.Setting(containerEl).setName("Enable Hover Buttons").setDesc("Show the floating + buttons to easily add rows and columns.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableHoverButtons).onChange(async (value) => {
+      this.plugin.settings.enableHoverButtons = value;
+      await this.plugin.saveSettings();
+    }));
+  }
+};
+
 // main.ts
-var LiveFormulasPlugin = class extends import_obsidian2.Plugin {
+var LiveFormulasPlugin = class extends import_obsidian3.Plugin {
   async onload() {
-    console.log("Loading Live Formulas Plugin (Modular Version)...");
+    console.log("Loading Live Formulas Plugin (Settings Version)...");
+    await this.loadSettings();
+    this.addSettingTab(new LiveFormulasSettingTab(this.app, this));
     this.registerMarkdownCodeBlockProcessor(
       "live-table",
       (source, el, ctx) => {
@@ -347,15 +382,22 @@ var LiveFormulasPlugin = class extends import_obsidian2.Plugin {
           const file = this.app.workspace.getActiveFile();
           if (!file)
             return;
-          const content = await this.app.vault.read(file);
-          const lines = content.split("\n");
-          const newJson = JSON.stringify(newData, null, 2);
-          lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
-          await this.app.vault.modify(file, lines.join("\n"));
+          await this.app.vault.process(file, (data) => {
+            const lines = data.split("\n");
+            const newJson = JSON.stringify(newData, null, 2);
+            lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
+            return lines.join("\n");
+          });
         };
-        renderTableUI(el, tableData, saveContent);
+        renderTableUI(el, tableData, this.settings, saveContent);
       }
     );
+  }
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
   onunload() {
     console.log("Unloading Live Formulas Plugin...");
