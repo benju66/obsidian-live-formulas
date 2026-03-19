@@ -22,10 +22,10 @@ __export(main_exports, {
   default: () => LiveFormulasPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // ui.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // math.ts
 var evaluateMath = (formula, tableData, depth = 0) => {
@@ -71,275 +71,324 @@ var evaluateMath = (formula, tableData, depth = 0) => {
   }
 };
 
+// toolbar.ts
+var import_obsidian = require("obsidian");
+var TableToolbar = class {
+  constructor(parent, onFormat) {
+    this.onFormat = onFormat;
+    this.activeCellId = null;
+    this.activeInput = null;
+    this.el = parent.createEl("div", {
+      attr: { style: "position: absolute; display: none; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); gap: 4px; align-items: center;" }
+    });
+    this.buildButtons();
+  }
+  buildButtons() {
+    const createBtn = (text, onClick, bold = false) => {
+      const btn = this.el.createEl("button", {
+        text,
+        attr: { style: `background: transparent; border: none; cursor: pointer; padding: 4px 8px; border-radius: 4px; color: var(--text-normal); font-size: 13px; ${bold ? "font-weight: bold;" : ""}` }
+      });
+      btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        onClick(e);
+      });
+    };
+    createBtn("B", () => this.onFormat("bold", true), true);
+    createBtn("$", (e) => this.onFormat("type", "currency"));
+    createBtn("fx", (e) => {
+      const menu = new import_obsidian.Menu();
+      menu.addItem((i) => i.setTitle("Sum Range").onClick(() => {
+        if (this.activeInput)
+          this.activeInput.value = "=SUM(B1:B5)";
+      }));
+      menu.addItem((i) => i.setTitle("Basic Multiply").onClick(() => {
+        if (this.activeInput)
+          this.activeInput.value = "=(B1*1.05)";
+      }));
+      menu.showAtMouseEvent(e);
+    });
+    createBtn("\u2261 L", () => this.onFormat("align", "left"));
+    createBtn("\u2261 C", () => this.onFormat("align", "center"));
+    createBtn("\u2261 R", () => this.onFormat("align", "right"));
+  }
+  show(input, cellId, td, row) {
+    this.activeCellId = cellId;
+    this.activeInput = input;
+    this.el.style.display = "flex";
+    const offset = row === 1 ? td.offsetHeight + 5 : -38;
+    this.el.style.top = `${td.offsetTop + offset}px`;
+    this.el.style.left = `${td.offsetLeft}px`;
+  }
+  hide() {
+    this.el.style.display = "none";
+    this.activeCellId = null;
+    this.activeInput = null;
+  }
+};
+
+// dataActions.ts
+var insertRow = (tableData, targetRow, maxColCode, saveContent) => {
+  const newData = { _format: tableData._format };
+  const cols = Array.from({ length: maxColCode - 64 }, (_, i) => String.fromCharCode(65 + i));
+  for (const [key, value] of Object.entries(tableData)) {
+    if (key === "_format")
+      continue;
+    const match = key.match(/^([A-Z]+)(\d+)$/);
+    if (!match)
+      continue;
+    const col = match[1];
+    const row = parseInt(match[2], 10);
+    if (row < targetRow)
+      newData[key] = value;
+    else
+      newData[`${col}${row + 1}`] = value;
+  }
+  cols.forEach((c) => newData[`${c}${targetRow}`] = "");
+  saveContent(newData);
+};
+var deleteRow = (tableData, targetRow, saveContent) => {
+  const newData = { _format: tableData._format };
+  for (const [key, value] of Object.entries(tableData)) {
+    if (key === "_format")
+      continue;
+    const match = key.match(/^([A-Z]+)(\d+)$/);
+    if (!match)
+      continue;
+    const col = match[1];
+    const row = parseInt(match[2], 10);
+    if (row < targetRow)
+      newData[key] = value;
+    else if (row > targetRow)
+      newData[`${col}${row - 1}`] = value;
+  }
+  saveContent(newData);
+};
+var insertCol = (tableData, targetColCode, maxRow, maxColCode, saveContent) => {
+  if (maxColCode >= 90)
+    return;
+  const newData = { _format: tableData._format };
+  for (const [key, value] of Object.entries(tableData)) {
+    if (key === "_format")
+      continue;
+    const match = key.match(/^([A-Z]+)(\d+)$/);
+    if (!match)
+      continue;
+    const colCode = match[1].charCodeAt(0);
+    const row = parseInt(match[2], 10);
+    if (colCode < targetColCode)
+      newData[key] = value;
+    else
+      newData[`${String.fromCharCode(colCode + 1)}${row}`] = value;
+  }
+  for (let r = 1; r <= maxRow; r++)
+    newData[`${String.fromCharCode(targetColCode)}${r}`] = "";
+  saveContent(newData);
+};
+var deleteCol = (tableData, targetColCode, saveContent) => {
+  const newData = { _format: tableData._format };
+  for (const [key, value] of Object.entries(tableData)) {
+    if (key === "_format")
+      continue;
+    const match = key.match(/^([A-Z]+)(\d+)$/);
+    if (!match)
+      continue;
+    const colCode = match[1].charCodeAt(0);
+    const row = parseInt(match[2], 10);
+    if (colCode < targetColCode)
+      newData[key] = value;
+    else if (colCode > targetColCode)
+      newData[`${String.fromCharCode(colCode - 1)}${row}`] = value;
+  }
+  saveContent(newData);
+};
+
 // ui.ts
 var nextFocusCell = null;
 var renderTableUI = (el, tableData, settings, saveContent) => {
-  const cellIds = Object.keys(tableData);
+  if (!tableData._format)
+    tableData._format = {};
+  const cellIds = Object.keys(tableData).filter((k) => k !== "_format");
   let maxRow = 1;
   let maxColCode = 65;
   cellIds.forEach((id) => {
     const match = id.match(/^([A-Z]+)(\d+)$/);
     if (match) {
-      const col = match[1];
       const row = parseInt(match[2], 10);
       if (row > maxRow)
         maxRow = row;
-      if (col.charCodeAt(0) > maxColCode)
-        maxColCode = col.charCodeAt(0);
+      if (match[1].charCodeAt(0) > maxColCode)
+        maxColCode = match[1].charCodeAt(0);
     }
   });
   if (maxColCode < 66)
     maxColCode = 66;
-  const cols = [];
-  for (let i = 65; i <= maxColCode; i++) {
-    cols.push(String.fromCharCode(i));
-  }
+  const cols = Array.from({ length: maxColCode - 64 }, (_, i) => String.fromCharCode(65 + i));
   const rows = maxRow;
-  const insertRow = (targetRow) => {
-    const newData = {};
-    for (const [key, value] of Object.entries(tableData)) {
-      const match = key.match(/^([A-Z]+)(\d+)$/);
-      if (!match)
-        continue;
-      const col = match[1];
-      const row = parseInt(match[2], 10);
-      if (row < targetRow)
-        newData[key] = value;
-      else
-        newData[`${col}${row + 1}`] = value;
-    }
-    for (let i = 65; i <= maxColCode; i++)
-      newData[`${String.fromCharCode(i)}${targetRow}`] = "";
-    saveContent(newData);
-  };
-  const deleteRow = (targetRow) => {
-    const newData = {};
-    for (const [key, value] of Object.entries(tableData)) {
-      const match = key.match(/^([A-Z]+)(\d+)$/);
-      if (!match)
-        continue;
-      const col = match[1];
-      const row = parseInt(match[2], 10);
-      if (row < targetRow)
-        newData[key] = value;
-      else if (row > targetRow)
-        newData[`${col}${row - 1}`] = value;
-    }
-    saveContent(newData);
-  };
-  const insertCol = (targetColCode) => {
-    if (maxColCode >= 90)
+  const wrapper = el.createEl("div", { attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin: 10px 0;" } });
+  const toolbar = settings.showToolbar ? new TableToolbar(wrapper, (key, val) => {
+    const id = toolbar.activeCellId;
+    if (!id || !toolbar.activeInput)
       return;
-    const newData = {};
-    for (const [key, value] of Object.entries(tableData)) {
-      const match = key.match(/^([A-Z]+)(\d+)$/);
-      if (!match)
-        continue;
-      const colCode = match[1].charCodeAt(0);
-      const row = parseInt(match[2], 10);
-      if (colCode < targetColCode)
-        newData[key] = value;
-      else
-        newData[`${String.fromCharCode(colCode + 1)}${row}`] = value;
-    }
-    for (let r = 1; r <= maxRow; r++)
-      newData[`${String.fromCharCode(targetColCode)}${r}`] = "";
-    saveContent(newData);
-  };
-  const deleteCol = (targetColCode) => {
-    const newData = {};
-    for (const [key, value] of Object.entries(tableData)) {
-      const match = key.match(/^([A-Z]+)(\d+)$/);
-      if (!match)
-        continue;
-      const colCode = match[1].charCodeAt(0);
-      const row = parseInt(match[2], 10);
-      if (colCode < targetColCode)
-        newData[key] = value;
-      else if (colCode > targetColCode)
-        newData[`${String.fromCharCode(colCode - 1)}${row}`] = value;
-    }
-    saveContent(newData);
-  };
-  const wrapper = el.createEl("div", {
-    attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin-top: 10px; margin-bottom: 10px;" }
-  });
-  const container = wrapper.createEl("div", {
-    attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: hidden;" }
-  });
-  const table = container.createEl("table", {
-    attr: { style: "width: 100%; border-collapse: collapse; margin: 0;" }
-  });
+    if (!tableData._format[id])
+      tableData._format[id] = {};
+    tableData._format[id][key] = tableData._format[id][key] === val ? null : val;
+    saveContent(tableData);
+    if (key === "bold")
+      toolbar.activeInput.style.fontWeight = tableData._format[id].bold ? "bold" : "normal";
+    if (key === "align")
+      toolbar.activeInput.style.textAlign = tableData._format[id].align || "left";
+  }) : null;
+  const container = wrapper.createEl("div", { attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: visible;" } });
+  const table = container.createEl("table", { attr: { style: "width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed;" } });
+  if (settings.showHeaders) {
+    const hr = table.createEl("tr");
+    hr.createEl("th", { attr: { style: "width: 40px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border);" } });
+    cols.forEach((c) => hr.createEl("th", { text: c, attr: { style: "background: var(--background-secondary); border: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 11px; padding: 4px;" } }));
+  }
   for (let r = 1; r <= rows; r++) {
     const tr = table.createEl("tr");
+    if (settings.showHeaders) {
+      tr.createEl("td", { text: r.toString(), attr: { style: "width: 40px; text-align: center; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 11px;" } });
+    }
     for (const c of cols) {
       const cellId = `${c}${r}`;
+      const cellFormat = tableData._format[cellId] || {};
       const rawData = tableData[cellId] !== void 0 ? tableData[cellId] : "";
       let displayValue = rawData.toString();
       if (typeof rawData === "string" && rawData.startsWith("=")) {
-        const calculatedNumber = evaluateMath(rawData, tableData);
-        displayValue = `$${calculatedNumber.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const num = evaluateMath(rawData, tableData);
+        const isCurrency = cellFormat.type === "currency" || !cellFormat.type && settings.currencySymbol;
+        displayValue = isCurrency ? `${settings.currencySymbol || "$"}${num.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : num.toString();
       } else if (typeof rawData === "number") {
-        displayValue = rawData.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        displayValue = rawData.toLocaleString("en-US", { minimumFractionDigits: 2 });
       }
-      const td = tr.createEl("td", {
-        attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" }
-      });
+      const td = tr.createEl("td", { attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" } });
       const input = td.createEl("input", {
         type: "text",
         value: displayValue,
-        attr: {
-          "data-col": c,
-          "data-row": r.toString(),
-          style: "width: 100%; box-sizing: border-box; border: none; background: transparent; color: inherit; font-family: inherit; font-size: inherit; padding: 8px 12px; outline: none;"
-        }
+        attr: { "data-col": c, "data-row": r.toString(), style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || "left"}; font-weight: ${cellFormat.bold ? "bold" : "normal"}; font-family: ${typeof rawData === "number" ? "monospace" : "inherit"};` }
       });
       if (typeof rawData === "string" && rawData.startsWith("=")) {
-        input.style.fontWeight = "bold";
         input.style.color = "var(--text-accent)";
         tr.style.backgroundColor = "var(--background-secondary)";
       }
-      if (!isNaN(parseFloat(displayValue.replace(/,/g, "").replace("$", "")))) {
-        input.style.textAlign = "right";
-        input.style.fontFamily = "monospace";
-      }
       if (nextFocusCell === cellId) {
-        let attempts = 0;
-        const tryFocus = () => {
-          if (document.body.contains(input)) {
-            input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
-          } else if (attempts < 20) {
-            attempts++;
-            setTimeout(tryFocus, 10);
-          }
-        };
-        setTimeout(tryFocus, 10);
+        setTimeout(() => {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }, 20);
         nextFocusCell = null;
       }
       input.addEventListener("focus", () => {
         input.value = rawData.toString();
         input.style.background = "var(--background-modifier-active-hover)";
+        toolbar == null ? void 0 : toolbar.show(input, cellId, td, r);
       });
       input.addEventListener("blur", () => {
+        toolbar == null ? void 0 : toolbar.hide();
         input.style.background = "transparent";
         const newValue = input.value.trim();
-        if (newValue === rawData.toString()) {
+        if (newValue !== rawData.toString()) {
+          let parsedValue = newValue;
+          if (newValue !== "" && !newValue.startsWith("=")) {
+            const asNum = parseFloat(newValue.replace(/,/g, ""));
+            if (!isNaN(asNum))
+              parsedValue = asNum;
+          }
+          tableData[cellId] = parsedValue;
+          saveContent(tableData);
+        } else {
           input.value = displayValue;
-          return;
         }
-        let parsedValue = newValue;
-        if (newValue !== "" && !newValue.startsWith("=")) {
-          const asNumber = parseFloat(newValue.replace(/,/g, ""));
-          if (!isNaN(asNumber))
-            parsedValue = asNumber;
-        }
-        tableData[cellId] = parsedValue;
-        saveContent(tableData);
       });
       input.addEventListener("keydown", (e) => {
+        let moveCol = c, moveRow = r;
         if (e.key === "Enter") {
           e.preventDefault();
-          const nextRow = e.shiftKey ? r - 1 : r + 1;
-          if (nextRow >= 1 && nextRow <= rows) {
-            nextFocusCell = `${c}${nextRow}`;
-            const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`);
-            if (nextInput) {
-              nextInput.focus();
-            } else {
-              input.blur();
-            }
-          } else {
-            input.blur();
-          }
-        }
-        if (e.key === "Tab") {
-          const colIndex = cols.indexOf(c);
-          let nextCol = c;
-          let nextRow = r;
+          moveRow = e.shiftKey ? r - 1 : r + 1;
+        } else if (e.key === "Tab") {
+          const idx = cols.indexOf(c);
           if (!e.shiftKey) {
-            if (colIndex < cols.length - 1)
-              nextCol = cols[colIndex + 1];
+            if (idx < cols.length - 1)
+              moveCol = cols[idx + 1];
             else if (r < rows) {
-              nextCol = cols[0];
-              nextRow = r + 1;
+              moveCol = cols[0];
+              moveRow = r + 1;
             }
           } else {
-            if (colIndex > 0)
-              nextCol = cols[colIndex - 1];
+            if (idx > 0)
+              moveCol = cols[idx - 1];
             else if (r > 1) {
-              nextCol = cols[cols.length - 1];
-              nextRow = r - 1;
+              moveCol = cols[cols.length - 1];
+              moveRow = r - 1;
             }
           }
-          nextFocusCell = `${nextCol}${nextRow}`;
+        } else if (e.key === "ArrowDown")
+          moveRow = r + 1;
+        else if (e.key === "ArrowUp")
+          moveRow = r - 1;
+        else if (e.key === "ArrowRight" && input.selectionEnd === input.value.length) {
+          const idx = cols.indexOf(c);
+          if (idx < cols.length - 1)
+            moveCol = cols[idx + 1];
+        } else if (e.key === "ArrowLeft" && input.selectionStart === 0) {
+          const idx = cols.indexOf(c);
+          if (idx > 0)
+            moveCol = cols[idx - 1];
+        } else {
+          return;
+        }
+        if (moveCol !== c || moveRow !== r) {
+          e.preventDefault();
+          nextFocusCell = `${moveCol}${moveRow}`;
+          const target = table.querySelector(`input[data-col="${moveCol}"][data-row="${moveRow}"]`);
+          if (target)
+            target.focus();
+          else
+            input.blur();
         }
       });
       input.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        const menu = new import_obsidian.Menu();
-        menu.addItem((item) => {
-          item.setTitle("Insert Row Above").setIcon("arrow-up").onClick(() => insertRow(r));
-        });
-        menu.addItem((item) => {
-          item.setTitle("Insert Row Below").setIcon("arrow-down").onClick(() => insertRow(r + 1));
-        });
-        menu.addItem((item) => {
-          item.setTitle("Delete Row").setIcon("trash").onClick(() => deleteRow(r));
-        });
+        const menu = new import_obsidian2.Menu();
+        menu.addItem((i) => i.setTitle("Insert Row Above").setIcon("arrow-up").onClick(() => insertRow(tableData, r, maxColCode, saveContent)));
+        menu.addItem((i) => i.setTitle("Insert Row Below").setIcon("arrow-down").onClick(() => insertRow(tableData, r + 1, maxColCode, saveContent)));
+        menu.addItem((i) => i.setTitle("Delete Row").setIcon("trash").onClick(() => deleteRow(tableData, r, saveContent)));
         menu.addSeparator();
-        menu.addItem((item) => {
-          item.setTitle("Insert Column Left").setIcon("arrow-left").onClick(() => insertCol(c.charCodeAt(0)));
-        });
-        menu.addItem((item) => {
-          item.setTitle("Insert Column Right").setIcon("arrow-right").onClick(() => insertCol(c.charCodeAt(0) + 1));
-        });
-        menu.addItem((item) => {
-          item.setTitle("Delete Column").setIcon("trash").onClick(() => deleteCol(c.charCodeAt(0)));
-        });
+        menu.addItem((i) => i.setTitle("Insert Column Left").setIcon("arrow-left").onClick(() => insertCol(tableData, c.charCodeAt(0), rows, maxColCode, saveContent)));
+        menu.addItem((i) => i.setTitle("Insert Column Right").setIcon("arrow-right").onClick(() => insertCol(tableData, c.charCodeAt(0) + 1, rows, maxColCode, saveContent)));
+        menu.addItem((i) => i.setTitle("Delete Column").setIcon("trash").onClick(() => deleteCol(tableData, c.charCodeAt(0), saveContent)));
         menu.showAtMouseEvent(e);
       });
     }
   }
-  const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
-  const addColBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
-  const addRowBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
-  wrapper.addEventListener("mouseenter", () => {
-    addColBtn.style.opacity = "1";
-    addRowBtn.style.opacity = "1";
-  });
-  wrapper.addEventListener("mouseleave", () => {
-    addColBtn.style.opacity = "0";
-    addRowBtn.style.opacity = "0";
-  });
-  addColBtn.addEventListener("mouseenter", () => addColBtn.style.background = "var(--interactive-hover)");
-  addColBtn.addEventListener("mouseleave", () => addColBtn.style.background = "var(--interactive-normal)");
-  addRowBtn.addEventListener("mouseenter", () => addRowBtn.style.background = "var(--interactive-hover)");
-  addRowBtn.addEventListener("mouseleave", () => addRowBtn.style.background = "var(--interactive-normal)");
-  addColBtn.addEventListener("click", () => {
-    if (maxColCode >= 90)
-      return;
-    const newColChar = String.fromCharCode(maxColCode + 1);
-    for (let r = 1; r <= rows; r++)
-      tableData[`${newColChar}${r}`] = "";
-    saveContent(tableData);
-  });
-  addRowBtn.addEventListener("click", () => {
-    const newRow = rows + 1;
-    cols.forEach((c) => {
-      tableData[`${c}${newRow}`] = "";
+  if (settings == null ? void 0 : settings.enableHoverButtons) {
+    const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
+    const addColBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
+    const addRowBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
+    wrapper.addEventListener("mouseenter", () => {
+      addColBtn.style.opacity = "1";
+      addRowBtn.style.opacity = "1";
     });
-    saveContent(tableData);
-  });
+    wrapper.addEventListener("mouseleave", () => {
+      addColBtn.style.opacity = "0";
+      addRowBtn.style.opacity = "0";
+    });
+    addColBtn.addEventListener("click", () => insertCol(tableData, maxColCode + 1, rows, maxColCode, saveContent));
+    addRowBtn.addEventListener("click", () => insertRow(tableData, rows + 1, maxColCode, saveContent));
+  }
 };
 
 // settings.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var DEFAULT_SETTINGS = {
   currencySymbol: "$",
-  enableHoverButtons: true
+  enableHoverButtons: true,
+  showToolbar: true,
+  showHeaders: true
 };
-var LiveFormulasSettingTab = class extends import_obsidian2.PluginSettingTab {
+var LiveFormulasSettingTab = class extends import_obsidian3.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -348,19 +397,27 @@ var LiveFormulasSettingTab = class extends import_obsidian2.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Live Table Formulas Settings" });
-    new import_obsidian2.Setting(containerEl).setName("Currency Symbol").setDesc("Which symbol should be used when formatting formula outputs?").addText((text) => text.setPlaceholder("e.g. $ or \u20AC").setValue(this.plugin.settings.currencySymbol).onChange(async (value) => {
+    new import_obsidian3.Setting(containerEl).setName("Currency Symbol").addText((text) => text.setValue(this.plugin.settings.currencySymbol).onChange(async (value) => {
       this.plugin.settings.currencySymbol = value || "$";
       await this.plugin.saveSettings();
     }));
-    new import_obsidian2.Setting(containerEl).setName("Enable Hover Buttons").setDesc("Show the floating + buttons to easily add rows and columns.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableHoverButtons).onChange(async (value) => {
+    new import_obsidian3.Setting(containerEl).setName("Enable Hover Buttons").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableHoverButtons).onChange(async (value) => {
       this.plugin.settings.enableHoverButtons = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian3.Setting(containerEl).setName("Show Formatting Toolbar").addToggle((toggle) => toggle.setValue(this.plugin.settings.showToolbar).onChange(async (value) => {
+      this.plugin.settings.showToolbar = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian3.Setting(containerEl).setName("Show Row/Column Headers").setDesc("Displays A, B, C and 1, 2, 3 labels.").addToggle((toggle) => toggle.setValue(this.plugin.settings.showHeaders).onChange(async (value) => {
+      this.plugin.settings.showHeaders = value;
       await this.plugin.saveSettings();
     }));
   }
 };
 
 // main.ts
-var LiveFormulasPlugin = class extends import_obsidian3.Plugin {
+var LiveFormulasPlugin = class extends import_obsidian4.Plugin {
   async onload() {
     console.log("Loading Live Formulas Plugin (Settings Version)...");
     await this.loadSettings();
