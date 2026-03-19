@@ -22,42 +22,57 @@ __export(main_exports, {
   default: () => LiveFormulasPlugin
 });
 module.exports = __toCommonJS(main_exports);
+var import_obsidian2 = require("obsidian");
+
+// ui.ts
 var import_obsidian = require("obsidian");
 
 // math.ts
-var evaluateMath = (formula, tableData) => {
+var evaluateMath = (formula, tableData, depth = 0) => {
+  if (depth > 20)
+    return 0;
   const getValue = (cellId) => {
     const raw = tableData[cellId];
     if (typeof raw === "number")
       return raw;
     if (typeof raw === "string") {
       if (raw.startsWith("="))
-        return evaluateMath(raw, tableData);
+        return evaluateMath(raw, tableData, depth + 1);
       const parsed = parseFloat(raw.replace(/,/g, ""));
       return isNaN(parsed) ? 0 : parsed;
     }
     return 0;
   };
-  const rangeMatch = formula.match(/=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/);
-  if (rangeMatch) {
-    const col = rangeMatch[1];
-    const startRow = parseInt(rangeMatch[2], 10);
-    const endRow = parseInt(rangeMatch[4], 10);
+  let expression = formula.substring(1).toUpperCase();
+  expression = expression.replace(/SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/g, (match, startCol, startRowStr, endCol, endRowStr) => {
+    const startRow = parseInt(startRowStr, 10);
+    const endRow = parseInt(endRowStr, 10);
     let total = 0;
     for (let r = startRow; r <= endRow; r++) {
-      total += getValue(`${col}${r}`);
+      total += getValue(`${startCol}${r}`);
     }
-    return total;
+    return total.toString();
+  });
+  expression = expression.replace(/SUM\(([^)]+)\)/g, (match, argsStr) => {
+    const args = argsStr.split(",").map((s) => s.trim());
+    const total = args.reduce((sum, cellId) => sum + getValue(cellId), 0);
+    return total.toString();
+  });
+  expression = expression.replace(/[A-Z]+\d+/g, (match) => {
+    return getValue(match).toString();
+  });
+  try {
+    const sanitized = expression.replace(/[^0-9+\-*/(). ]/g, "");
+    const result = new Function("return " + sanitized)();
+    return isNaN(result) ? 0 : result;
+  } catch (e) {
+    console.error("Live Formulas Math Error:", formula, e);
+    return 0;
   }
-  const sumMatch = formula.match(/=SUM\(([^)]+)\)/);
-  if (sumMatch) {
-    const args = sumMatch[1].split(",").map((s) => s.trim());
-    return args.reduce((total, cellId) => total + getValue(cellId), 0);
-  }
-  return 0;
 };
 
 // ui.ts
+var nextFocusCell = null;
 var renderTableUI = (el, tableData, saveContent) => {
   const cellIds = Object.keys(tableData);
   let maxRow = 1;
@@ -80,6 +95,72 @@ var renderTableUI = (el, tableData, saveContent) => {
     cols.push(String.fromCharCode(i));
   }
   const rows = maxRow;
+  const insertRow = (targetRow) => {
+    const newData = {};
+    for (const [key, value] of Object.entries(tableData)) {
+      const match = key.match(/^([A-Z]+)(\d+)$/);
+      if (!match)
+        continue;
+      const col = match[1];
+      const row = parseInt(match[2], 10);
+      if (row < targetRow)
+        newData[key] = value;
+      else
+        newData[`${col}${row + 1}`] = value;
+    }
+    for (let i = 65; i <= maxColCode; i++)
+      newData[`${String.fromCharCode(i)}${targetRow}`] = "";
+    saveContent(newData);
+  };
+  const deleteRow = (targetRow) => {
+    const newData = {};
+    for (const [key, value] of Object.entries(tableData)) {
+      const match = key.match(/^([A-Z]+)(\d+)$/);
+      if (!match)
+        continue;
+      const col = match[1];
+      const row = parseInt(match[2], 10);
+      if (row < targetRow)
+        newData[key] = value;
+      else if (row > targetRow)
+        newData[`${col}${row - 1}`] = value;
+    }
+    saveContent(newData);
+  };
+  const insertCol = (targetColCode) => {
+    if (maxColCode >= 90)
+      return;
+    const newData = {};
+    for (const [key, value] of Object.entries(tableData)) {
+      const match = key.match(/^([A-Z]+)(\d+)$/);
+      if (!match)
+        continue;
+      const colCode = match[1].charCodeAt(0);
+      const row = parseInt(match[2], 10);
+      if (colCode < targetColCode)
+        newData[key] = value;
+      else
+        newData[`${String.fromCharCode(colCode + 1)}${row}`] = value;
+    }
+    for (let r = 1; r <= maxRow; r++)
+      newData[`${String.fromCharCode(targetColCode)}${r}`] = "";
+    saveContent(newData);
+  };
+  const deleteCol = (targetColCode) => {
+    const newData = {};
+    for (const [key, value] of Object.entries(tableData)) {
+      const match = key.match(/^([A-Z]+)(\d+)$/);
+      if (!match)
+        continue;
+      const colCode = match[1].charCodeAt(0);
+      const row = parseInt(match[2], 10);
+      if (colCode < targetColCode)
+        newData[key] = value;
+      else if (colCode > targetColCode)
+        newData[`${String.fromCharCode(colCode - 1)}${row}`] = value;
+    }
+    saveContent(newData);
+  };
   const wrapper = el.createEl("div", {
     attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin-top: 10px; margin-bottom: 10px;" }
   });
@@ -108,6 +189,8 @@ var renderTableUI = (el, tableData, saveContent) => {
         type: "text",
         value: displayValue,
         attr: {
+          "data-col": c,
+          "data-row": r.toString(),
           style: "width: 100%; box-sizing: border-box; border: none; background: transparent; color: inherit; font-family: inherit; font-size: inherit; padding: 8px 12px; outline: none;"
         }
       });
@@ -119,6 +202,13 @@ var renderTableUI = (el, tableData, saveContent) => {
       if (!isNaN(parseFloat(displayValue.replace(/,/g, "").replace("$", "")))) {
         input.style.textAlign = "right";
         input.style.fontFamily = "monospace";
+      }
+      if (nextFocusCell === cellId) {
+        setTimeout(() => {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }, 50);
+        nextFocusCell = null;
       }
       input.addEventListener("focus", () => {
         input.value = rawData.toString();
@@ -141,20 +231,72 @@ var renderTableUI = (el, tableData, saveContent) => {
         saveContent(tableData);
       });
       input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter")
-          input.blur();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const nextRow = e.shiftKey ? r - 1 : r + 1;
+          if (nextRow >= 1 && nextRow <= rows) {
+            nextFocusCell = `${c}${nextRow}`;
+            input.blur();
+            setTimeout(() => {
+              const nextInput = table.querySelector(`input[data-col="${c}"][data-row="${nextRow}"]`);
+              if (nextInput)
+                nextInput.focus();
+            }, 10);
+          } else {
+            input.blur();
+          }
+        }
+        if (e.key === "Tab") {
+          const colIndex = cols.indexOf(c);
+          let nextCol = c;
+          let nextRow = r;
+          if (!e.shiftKey) {
+            if (colIndex < cols.length - 1)
+              nextCol = cols[colIndex + 1];
+            else if (r < rows) {
+              nextCol = cols[0];
+              nextRow = r + 1;
+            }
+          } else {
+            if (colIndex > 0)
+              nextCol = cols[colIndex - 1];
+            else if (r > 1) {
+              nextCol = cols[cols.length - 1];
+              nextRow = r - 1;
+            }
+          }
+          nextFocusCell = `${nextCol}${nextRow}`;
+        }
+      });
+      input.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const menu = new import_obsidian.Menu();
+        menu.addItem((item) => {
+          item.setTitle("Insert Row Above").setIcon("arrow-up").onClick(() => insertRow(r));
+        });
+        menu.addItem((item) => {
+          item.setTitle("Insert Row Below").setIcon("arrow-down").onClick(() => insertRow(r + 1));
+        });
+        menu.addItem((item) => {
+          item.setTitle("Delete Row").setIcon("trash").onClick(() => deleteRow(r));
+        });
+        menu.addSeparator();
+        menu.addItem((item) => {
+          item.setTitle("Insert Column Left").setIcon("arrow-left").onClick(() => insertCol(c.charCodeAt(0)));
+        });
+        menu.addItem((item) => {
+          item.setTitle("Insert Column Right").setIcon("arrow-right").onClick(() => insertCol(c.charCodeAt(0) + 1));
+        });
+        menu.addItem((item) => {
+          item.setTitle("Delete Column").setIcon("trash").onClick(() => deleteCol(c.charCodeAt(0)));
+        });
+        menu.showAtMouseEvent(e);
       });
     }
   }
   const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
-  const addColBtn = wrapper.createEl("button", {
-    text: "+",
-    attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` }
-  });
-  const addRowBtn = wrapper.createEl("button", {
-    text: "+",
-    attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` }
-  });
+  const addColBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
+  const addRowBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
   wrapper.addEventListener("mouseenter", () => {
     addColBtn.style.opacity = "1";
     addRowBtn.style.opacity = "1";
@@ -185,7 +327,7 @@ var renderTableUI = (el, tableData, saveContent) => {
 };
 
 // main.ts
-var LiveFormulasPlugin = class extends import_obsidian.Plugin {
+var LiveFormulasPlugin = class extends import_obsidian2.Plugin {
   async onload() {
     console.log("Loading Live Formulas Plugin (Modular Version)...");
     this.registerMarkdownCodeBlockProcessor(

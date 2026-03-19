@@ -1,35 +1,54 @@
-export const evaluateMath = (formula: string, tableData: any): number => {
-    // Helper to extract clean numbers from cells
+export const evaluateMath = (formula: string, tableData: any, depth = 0): number => {
+    // 1. Safety Check: Prevent infinite loops if A1 refers to B1, and B1 refers to A1
+    if (depth > 20) return 0; 
+
     const getValue = (cellId: string): number => {
         const raw = tableData[cellId];
         if (typeof raw === 'number') return raw;
         if (typeof raw === 'string') {
-            if (raw.startsWith('=')) return evaluateMath(raw, tableData); // Recursive for nested formulas
+            if (raw.startsWith('=')) return evaluateMath(raw, tableData, depth + 1);
             const parsed = parseFloat(raw.replace(/,/g, ''));
             return isNaN(parsed) ? 0 : parsed;
         }
         return 0;
     };
 
-    // 1. Range Formulas: =SUM(B1:B5)
-    const rangeMatch = formula.match(/=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/);
-    if (rangeMatch) {
-        const col = rangeMatch[1]; 
-        const startRow = parseInt(rangeMatch[2], 10);
-        const endRow = parseInt(rangeMatch[4], 10);
+    // Remove the '=' and make everything uppercase so it's easy to read
+    let expression = formula.substring(1).toUpperCase(); 
+
+    // 2. Pre-calculate any SUM ranges (e.g., SUM(B1:B5)) and replace them with raw numbers
+    expression = expression.replace(/SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/g, (match, startCol, startRowStr, endCol, endRowStr) => {
+        const startRow = parseInt(startRowStr, 10);
+        const endRow = parseInt(endRowStr, 10);
         let total = 0;
         for(let r = startRow; r <= endRow; r++) {
-            total += getValue(`${col}${r}`);
+            total += getValue(`${startCol}${r}`);
         }
-        return total;
-    }
+        return total.toString();
+    });
 
-    // 2. Comma Formulas: =SUM(B1, B2)
-    const sumMatch = formula.match(/=SUM\(([^)]+)\)/);
-    if (sumMatch) {
-        const args = sumMatch[1].split(',').map(s => s.trim());
-        return args.reduce((total, cellId) => total + getValue(cellId), 0);
+    // 3. Pre-calculate comma SUMs (e.g., SUM(B1, B2))
+    expression = expression.replace(/SUM\(([^)]+)\)/g, (match, argsStr) => {
+        const args = argsStr.split(',').map(s => s.trim());
+        const total = args.reduce((sum, cellId) => sum + getValue(cellId), 0);
+        return total.toString();
+    });
+
+    // 4. Swap all remaining cell references (A1, B2) with their numeric values
+    expression = expression.replace(/[A-Z]+\d+/g, (match) => {
+        return getValue(match).toString();
+    });
+
+    // 5. Calculate the final math!
+    try {
+        // SECURITY: Strip out anything that isn't a number or a basic math symbol
+        const sanitized = expression.replace(/[^0-9+\-*/(). ]/g, '');
+        
+        // Use the native JS function constructor to do the arithmetic
+        const result = new Function('return ' + sanitized)();
+        return isNaN(result) ? 0 : result;
+    } catch (e) {
+        console.error("Live Formulas Math Error:", formula, e);
+        return 0;
     }
-    
-    return 0;
 };
