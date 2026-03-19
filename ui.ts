@@ -1,11 +1,12 @@
 import { Menu } from 'obsidian';
 import { evaluateMath } from './math';
 import { TableToolbar } from './toolbar';
+import { LiveFormulasSettings } from './settings';
 import * as Actions from './dataActions';
 
 let nextFocusCell: string | null = null;
 
-export const renderTableUI = (el: HTMLElement, tableData: any, settings: any, saveContent: (newData: any) => Promise<void>) => {
+export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFormulasSettings, saveContent: (newData: any) => Promise<void>) => {
     if (!tableData._format) tableData._format = {};
 
     // --- 1. DYNAMIC GRID CALCULATOR ---
@@ -76,7 +77,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: any, sa
                 attr: { 'data-col': c, 'data-row': r.toString(), style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || 'left'}; font-weight: ${cellFormat.bold ? 'bold' : 'normal'}; font-family: ${typeof rawData === 'number' ? 'monospace' : 'inherit'};` }
             });
 
-            if (typeof rawData === 'string' && rawData.startsWith('=')) { input.style.color = 'var(--text-accent)'; tr.style.backgroundColor = 'var(--background-secondary)'; }
+            if (typeof rawData === 'string' && rawData.startsWith('=')) { input.style.color = 'var(--text-accent)'; td.style.backgroundColor = 'var(--background-secondary)'; }
 
             // --- FOCUS RECOVERY ---
             if (nextFocusCell === cellId) {
@@ -150,7 +151,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: any, sa
     }
 
     // --- HOVER BUTTONS ---
-    if (settings?.enableHoverButtons) {
+    if (settings.enableHoverButtons) {
         const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
         const addColBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
         const addRowBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });

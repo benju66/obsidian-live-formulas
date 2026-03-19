@@ -271,7 +271,7 @@ var renderTableUI = (el, tableData, settings, saveContent) => {
       });
       if (typeof rawData === "string" && rawData.startsWith("=")) {
         input.style.color = "var(--text-accent)";
-        tr.style.backgroundColor = "var(--background-secondary)";
+        td.style.backgroundColor = "var(--background-secondary)";
       }
       if (nextFocusCell === cellId) {
         setTimeout(() => {
@@ -363,7 +363,7 @@ var renderTableUI = (el, tableData, settings, saveContent) => {
       });
     }
   }
-  if (settings == null ? void 0 : settings.enableHoverButtons) {
+  if (settings.enableHoverButtons) {
     const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
     const addColBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
     const addRowBtn = wrapper.createEl("button", { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
@@ -417,11 +417,33 @@ var LiveFormulasSettingTab = class extends import_obsidian3.PluginSettingTab {
 };
 
 // main.ts
+var DEFAULT_TABLE_JSON = JSON.stringify(
+  {
+    _format: {},
+    A1: "",
+    B1: "",
+    A2: "",
+    B2: ""
+  },
+  null,
+  2
+);
 var LiveFormulasPlugin = class extends import_obsidian4.Plugin {
   async onload() {
-    console.log("Loading Live Formulas Plugin (Settings Version)...");
     await this.loadSettings();
     this.addSettingTab(new LiveFormulasSettingTab(this.app, this));
+    this.addRibbonIcon("table", "Insert Live Formula Table", () => {
+      this.insertDefaultTable();
+    });
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, _editor, _view) => {
+        menu.addItem((item) => {
+          item.setTitle("Insert Live Formula Table").setIcon("table").onClick(() => {
+            this.insertDefaultTable();
+          });
+        });
+      })
+    );
     this.registerMarkdownCodeBlockProcessor(
       "live-table",
       (source, el, ctx) => {
@@ -450,6 +472,13 @@ var LiveFormulasPlugin = class extends import_obsidian4.Plugin {
       }
     );
   }
+  insertDefaultTable() {
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    if (!activeView)
+      return;
+    const block = "```live-table\n" + DEFAULT_TABLE_JSON + "\n```\n";
+    activeView.editor.replaceSelection(block);
+  }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }
@@ -457,7 +486,6 @@ var LiveFormulasPlugin = class extends import_obsidian4.Plugin {
     await this.saveData(this.settings);
   }
   onunload() {
-    console.log("Unloading Live Formulas Plugin...");
   }
 };
 // Annotate the CommonJS export names for ESM import in node:

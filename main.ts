@@ -1,35 +1,57 @@
-import { Plugin, MarkdownPostProcessorContext } from 'obsidian';
+import { Plugin, MarkdownPostProcessorContext, Menu, Editor, MarkdownView } from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
+
+const DEFAULT_TABLE_JSON = JSON.stringify(
+    {
+        _format: {},
+        A1: '',
+        B1: '',
+        A2: '',
+        B2: '',
+    },
+    null,
+    2
+);
 
 export default class LiveFormulasPlugin extends Plugin {
     settings: LiveFormulasSettings;
 
     async onload() {
-        console.log('Loading Live Formulas Plugin (Settings Version)...');
-
-        // 1. Load the settings
         await this.loadSettings();
 
-        // 2. Add the settings tab to Obsidian's menu
         this.addSettingTab(new LiveFormulasSettingTab(this.app, this));
+
+        this.addRibbonIcon('table', 'Insert Live Formula Table', () => {
+            this.insertDefaultTable();
+        });
+
+        this.registerEvent(
+            this.app.workspace.on('editor-menu', (menu: Menu, _editor: Editor, _view: MarkdownView) => {
+                menu.addItem((item) => {
+                    item.setTitle('Insert Live Formula Table')
+                        .setIcon('table')
+                        .onClick(() => {
+                            this.insertDefaultTable();
+                        });
+                });
+            })
+        );
 
         this.registerMarkdownCodeBlockProcessor(
             'live-table',
             (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
-                
                 let tableData: any = {};
                 try {
                     tableData = source.trim() ? JSON.parse(source) : {};
                 } catch (e) {
-                    el.createEl('div', { text: "Error reading table data.", attr: { style: "color: red;" } });
+                    el.createEl('div', { text: 'Error reading table data.', attr: { style: 'color: red;' } });
                     return;
                 }
 
-                // PERFORMANCE FIX: Use app.vault.process to queue writes and prevent lag on large files
                 const saveContent = async (newData: any) => {
                     const section = ctx.getSectionInfo(el);
-                    if (!section) return; 
+                    if (!section) return;
                     const file = this.app.workspace.getActiveFile();
                     if (!file) return;
 
@@ -41,10 +63,17 @@ export default class LiveFormulasPlugin extends Plugin {
                     });
                 };
 
-                // 3. Pass the settings down to the UI so it can use them!
                 renderTableUI(el, tableData, this.settings, saveContent);
             }
         );
+    }
+
+    insertDefaultTable() {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!activeView) return;
+
+        const block = '```live-table\n' + DEFAULT_TABLE_JSON + '\n```\n';
+        activeView.editor.replaceSelection(block);
     }
 
     async loadSettings() {
@@ -56,6 +85,5 @@ export default class LiveFormulasPlugin extends Plugin {
     }
 
     onunload() {
-        console.log('Unloading Live Formulas Plugin...');
     }
 }

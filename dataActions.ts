@@ -1,4 +1,4 @@
-export const insertRow = (tableData: any, targetRow: number, maxColCode: number, saveContent: Function) => {
+export const insertRow = (tableData: any, targetRow: number, maxColCode: number, saveContent: (newData: any) => Promise<void>) => {
     const newData: any = { _format: tableData._format };
     const cols = Array.from({length: maxColCode - 64}, (_, i) => String.fromCharCode(65 + i));
     
@@ -15,7 +15,7 @@ export const insertRow = (tableData: any, targetRow: number, maxColCode: number,
     saveContent(newData);
 };
 
-export const deleteRow = (tableData: any, targetRow: number, saveContent: Function) => {
+export const deleteRow = (tableData: any, targetRow: number, saveContent: (newData: any) => Promise<void>) => {
     const newData: any = { _format: tableData._format };
     for (const [key, value] of Object.entries(tableData)) {
         if (key === '_format') continue;
@@ -29,7 +29,7 @@ export const deleteRow = (tableData: any, targetRow: number, saveContent: Functi
     saveContent(newData);
 };
 
-export const insertCol = (tableData: any, targetColCode: number, maxRow: number, maxColCode: number, saveContent: Function) => {
+export const insertCol = (tableData: any, targetColCode: number, maxRow: number, maxColCode: number, saveContent: (newData: any) => Promise<void>) => {
     if (maxColCode >= 90) return; 
     const newData: any = { _format: tableData._format };
     for (const [key, value] of Object.entries(tableData)) {
@@ -45,7 +45,7 @@ export const insertCol = (tableData: any, targetColCode: number, maxRow: number,
     saveContent(newData);
 };
 
-export const deleteCol = (tableData: any, targetColCode: number, saveContent: Function) => {
+export const deleteCol = (tableData: any, targetColCode: number, saveContent: (newData: any) => Promise<void>) => {
     const newData: any = { _format: tableData._format };
     for (const [key, value] of Object.entries(tableData)) {
         if (key === '_format') continue;

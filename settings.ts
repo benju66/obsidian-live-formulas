@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS: LiveFormulasSettings = {
     currencySymbol: '$',
     enableHoverButtons: true,
     showToolbar: true,
-    showHeaders: true
+    showHeaders: true,
 }
 
 export class LiveFormulasSettingTab extends PluginSettingTab {
