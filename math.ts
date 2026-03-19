@@ -7,8 +7,11 @@ export const evaluateMath = (formula: string, tableData: any, depth: number = 0)
         if (typeof raw === 'number') return raw;
         if (typeof raw === 'string') {
             if (raw.startsWith('=')) return evaluateMath(raw, tableData, depth + 1);
-            const parsed = parseFloat(raw.replace(/,/g, ''));
-            return isNaN(parsed) ? 0 : parsed;
+
+            // USE Number() INSTEAD OF parseFloat()
+            const stripped = raw.replace(/,/g, '');
+            const parsed = Number(stripped);
+            return isNaN(parsed) || stripped === "" ? 0 : parsed;
         }
         return 0;
     };

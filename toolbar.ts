@@ -3,7 +3,7 @@ import { Menu } from 'obsidian';
 export class TableToolbar {
     el: HTMLElement;
     activeCellId: string | null = null;
-    activeInput: HTMLInputElement | null = null;
+    activeInput: HTMLInputElement | HTMLTextAreaElement | null = null;
 
     constructor(parent: HTMLElement, private onFormat: (key: string, value: any) => void) {
         this.el = parent.createEl('div', {
@@ -34,7 +34,7 @@ export class TableToolbar {
         createBtn('≡ R', () => this.onFormat('align', 'right'));
     }
 
-    show(input: HTMLInputElement, cellId: string, td: HTMLElement, row: number) {
+    show(input: HTMLInputElement | HTMLTextAreaElement, cellId: string, td: HTMLElement, row: number) {
         this.activeCellId = cellId;
         this.activeInput = input;
         this.el.style.display = 'flex';

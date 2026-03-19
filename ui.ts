@@ -31,16 +31,48 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
     const wrapper = el.createEl('div', { attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin: 10px 0;" } });
 
     const toolbar = settings.showToolbar ? new TableToolbar(wrapper, (key, val) => {
-        const id = toolbar.activeCellId;
-        if (!id || !toolbar.activeInput) return;
+        const tb = toolbar;
+        if (!tb) return;
+        const id = tb.activeCellId;
+        if (!id || !tb.activeInput) return;
         if (!tableData._format[id]) tableData._format[id] = {};
-        tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
+
+        // Fix: Properly toggle between 'currency' and 'plain'
+        if (key === 'type' && val === 'currency') {
+            const currentType = tableData._format[id].type;
+            // If it's already currency (or default currency), force to 'plain'
+            if (currentType === 'currency' || (!currentType && settings.currencySymbol)) {
+                tableData._format[id].type = 'plain';
+            } else {
+                tableData._format[id].type = 'currency';
+            }
+        } else {
+            tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
+        }
+
         saveContent(tableData);
-        if (key === 'bold') toolbar.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
-        if (key === 'align') toolbar.activeInput.style.textAlign = tableData._format[id].align || 'left';
+
+        // Live DOM Updates
+        if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
+        if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
+
+        // Visual Feedback for Currency:
+        // Blur the input to stop editing and instantly show the formatted number
+        if (key === 'type') {
+            tb.activeInput.blur();
+        }
     }) : null;
 
     const container = wrapper.createEl('div', { attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: visible;" } });
+
+    // --- FORMULA BAR ---
+    const formulaBarWrapper = container.createEl('div', { attr: { style: "display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--background-secondary); border-bottom: 1px solid var(--background-modifier-border);" } });
+    formulaBarWrapper.createEl('span', { text: 'fx', attr: { style: "font-style: italic; color: var(--text-muted); font-weight: bold; font-family: serif;" } });
+    const formulaBarInput = formulaBarWrapper.createEl('input', {
+        type: 'text',
+        attr: { style: "flex-grow: 1; border: none; background: transparent; outline: none; color: var(--text-normal); font-family: monospace; font-size: 13px;" }
+    });
+
     const table = container.createEl('table', { attr: { style: "width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed;" } });
 
     // --- 3. HEADERS ---
@@ -62,22 +94,45 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             const rawData = tableData[cellId] !== undefined ? tableData[cellId] : "";
             
             let displayValue = rawData.toString();
-            if (typeof rawData === 'string' && rawData.startsWith('=')) {
-                const num = evaluateMath(rawData, tableData);
-                const isCurrency = cellFormat.type === 'currency' || (!cellFormat.type && settings.currencySymbol);
-                displayValue = isCurrency ? `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', {minimumFractionDigits: 2})}` : num.toString();
+            const isFormula = typeof rawData === 'string' && rawData.startsWith('=');
+            let numericValue: number | null = null;
+
+            // 1. Evaluate whether the cell holds a valid number or formula
+            if (isFormula) {
+                numericValue = evaluateMath(rawData, tableData);
             } else if (typeof rawData === 'number') {
-                displayValue = rawData.toLocaleString('en-US', {minimumFractionDigits: 2});
+                numericValue = rawData;
+            }
+
+            // 2. Apply formatting to ALL numeric values
+            if (numericValue !== null) {
+                const useCurrency = cellFormat.type === 'currency' || (!cellFormat.type && settings.currencySymbol);
+                const isExplicitlyPlain = cellFormat.type === 'plain';
+
+                if (useCurrency && !isExplicitlyPlain) {
+                    displayValue = `${settings.currencySymbol || '$'}${numericValue.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+                } else {
+                    displayValue = numericValue.toLocaleString('en-US', {minimumFractionDigits: 2});
+                }
             }
 
             const td = tr.createEl('td', { attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" } });
-            const input = td.createEl('input', {
-                type: 'text',
-                value: displayValue,
-                attr: { 'data-col': c, 'data-row': r.toString(), style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || 'left'}; font-weight: ${cellFormat.bold ? 'bold' : 'normal'}; font-family: ${typeof rawData === 'number' ? 'monospace' : 'inherit'};` }
-            });
+            const input = td.createEl('textarea', {
+                attr: {
+                    'data-col': c, 'data-row': r.toString(), rows: "1",
+                    style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || 'left'}; font-weight: ${cellFormat.bold ? 'bold' : 'normal'}; font-family: ${typeof rawData === 'number' ? 'monospace' : 'inherit'}; resize: none; overflow: hidden; word-wrap: break-word; white-space: pre-wrap; display: block; line-height: 1.4;`
+                }
+            }) as HTMLTextAreaElement;
 
-            if (typeof rawData === 'string' && rawData.startsWith('=')) { input.style.color = 'var(--text-accent)'; td.style.backgroundColor = 'var(--background-secondary)'; }
+            input.value = displayValue;
+
+            const adjustHeight = () => {
+                input.style.height = 'auto';
+                input.style.height = `${input.scrollHeight}px`;
+            };
+            setTimeout(adjustHeight, 10);
+
+            if (isFormula) { input.style.color = 'var(--text-accent)'; td.style.backgroundColor = 'var(--background-secondary)'; }
 
             // --- FOCUS RECOVERY ---
             if (nextFocusCell === cellId) {
@@ -89,7 +144,24 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
                 input.value = rawData.toString();
                 input.style.background = 'var(--background-modifier-active-hover)';
                 toolbar?.show(input, cellId, td, r);
+                adjustHeight();
+
+                formulaBarInput.value = rawData.toString();
+                formulaBarInput.oninput = (e) => {
+                    input.value = (e.target as HTMLInputElement).value;
+                    adjustHeight();
+                };
+
+                formulaBarInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        input.focus();
+                        input.blur();
+                    }
+                };
             });
+
+            input.addEventListener('input', adjustHeight);
 
             input.addEventListener('blur', () => {
                 toolbar?.hide();
@@ -98,12 +170,27 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
                 if (newValue !== rawData.toString()) {
                     let parsedValue: any = newValue;
                     if (newValue !== "" && !newValue.startsWith('=')) {
-                        const asNum = parseFloat(newValue.replace(/,/g, ''));
-                        if (!isNaN(asNum)) parsedValue = asNum;
+                        const stripped = newValue.replace(/,/g, '');
+                        const asNum = Number(stripped);
+                        if (!isNaN(asNum) && stripped !== "") {
+                            parsedValue = asNum;
+                        }
                     }
                     tableData[cellId] = parsedValue;
-                    saveContent(tableData); 
+                    saveContent(tableData);
                 } else { input.value = displayValue; }
+
+                adjustHeight();
+
+                setTimeout(() => {
+                    const ae = document.activeElement;
+                    const editingInGrid = ae instanceof HTMLTextAreaElement && table.contains(ae);
+                    if (!editingInGrid && ae !== formulaBarInput) {
+                        formulaBarInput.value = '';
+                        formulaBarInput.oninput = null;
+                        formulaBarInput.onkeydown = null;
+                    }
+                }, 50);
             });
 
             // --- KEYBOARD NAVIGATION (Now with Arrow Keys) ---
@@ -129,7 +216,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
                 if (moveCol !== c || moveRow !== r) {
                     e.preventDefault();
                     nextFocusCell = `${moveCol}${moveRow}`;
-                    const target = table.querySelector(`input[data-col="${moveCol}"][data-row="${moveRow}"]`) as HTMLInputElement;
+                    const target = table.querySelector(`textarea[data-col="${moveCol}"][data-row="${moveRow}"]`) as HTMLTextAreaElement;
                     if (target) target.focus(); else input.blur();
                 }
             });
