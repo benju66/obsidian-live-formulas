@@ -1,0 +1,22 @@
+{
+  "name": "obsidian-live-formulas",
+  "version": "1.0.0",
+  "description": "Live Table Formulas for Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "dev": "esbuild main.ts --watch --bundle --platform=node --target=es2018 --format=cjs --external:obsidian --external:@codemirror/* --outfile=main.js",
+    "build": "esbuild main.ts --bundle --platform=node --target=es2018 --format=cjs --external:obsidian --external:@codemirror/* --minify --outfile=main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.26.0",
+    "@types/node": "^16.11.29",
+    "esbuild": "0.17.3",
+    "obsidian": "latest",
+    "tslib": "^2.8.1",
+    "typescript": "5.2.2"
+  }
+}
