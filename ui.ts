@@ -6,7 +6,14 @@ import * as Actions from './dataActions';
 
 let nextFocusCell: string | null = null;
 
-export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFormulasSettings, saveContent: (newData: any) => Promise<void>, toggleHeaders?: () => Promise<void>) => {
+export const renderTableUI = (
+    el: HTMLElement,
+    tableData: any,
+    settings: LiveFormulasSettings,
+    saveContent: (newData: any) => Promise<void>,
+    toggleHeaders?: () => Promise<void>,
+    flushSave?: () => void
+) => {
     if (!tableData._format) tableData._format = {};
 
     // --- 1. DYNAMIC GRID CALCULATOR ---
@@ -27,48 +34,9 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
     const cols = Array.from({length: maxColCode - 64}, (_, i) => String.fromCharCode(65 + i));
     const rows = maxRow;
 
-    // --- 2. WRAPPER & TOOLBAR ---
+    // --- 2. WRAPPER (toolbar attached after formula bar + helpers; see below) ---
     const wrapper = el.createEl('div', { attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin: 10px 0;" } });
-
-    const toolbar = settings.showToolbar ? new TableToolbar(wrapper, (key, val) => {
-        const tb = toolbar;
-        if (!tb) return;
-
-        if (key === 'toggleHeaders') {
-            if (tb.activeCellId) nextFocusCell = tb.activeCellId;
-            if (toggleHeaders) toggleHeaders();
-            return;
-        }
-
-        const id = tb.activeCellId;
-        if (!id || !tb.activeInput) return;
-        if (!tableData._format[id]) tableData._format[id] = {};
-
-        if (key === 'type') {
-            const currentType = tableData._format[id].type;
-            if (currentType === val) {
-                tableData._format[id].type = 'plain';
-            } else {
-                tableData._format[id].type = val;
-            }
-        } else if (key === 'decimals') {
-            let currentDecimals = tableData._format[id].decimals;
-            if (currentDecimals === undefined) currentDecimals = 2;
-
-            if (val === 'inc') currentDecimals++;
-            if (val === 'dec' && currentDecimals > 0) currentDecimals--;
-
-            tableData._format[id].decimals = currentDecimals;
-        } else {
-            tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
-        }
-
-        nextFocusCell = id;
-        saveContent(tableData);
-
-        if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
-        if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
-    }) : null;
+    let toolbar: TableToolbar | null = null;
 
     const container = wrapper.createEl('div', { attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: visible;" } });
 
@@ -191,6 +159,61 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             formulaBarLink = null;
         }
     });
+
+    if (settings.showToolbar) {
+        toolbar = new TableToolbar(wrapper, (key, val) => {
+            const tb = toolbar;
+            if (!tb) return;
+
+            if (key === 'toggleHeaders') {
+                if (tb.activeCellId) nextFocusCell = tb.activeCellId;
+                if (toggleHeaders) toggleHeaders();
+                return;
+            }
+
+            const id = tb.activeCellId;
+            if (!id || !tb.activeInput) return;
+            if (!tableData._format[id]) tableData._format[id] = {};
+
+            if (key === 'type') {
+                const currentType = tableData._format[id].type;
+                if (currentType === val) {
+                    tableData._format[id].type = 'plain';
+                } else {
+                    tableData._format[id].type = val;
+                }
+            } else if (key === 'decimals') {
+                let currentDecimals = tableData._format[id].decimals;
+                if (currentDecimals === undefined) currentDecimals = 2;
+
+                if (val === 'inc') currentDecimals++;
+                if (val === 'dec' && currentDecimals > 0) currentDecimals--;
+
+                tableData._format[id].decimals = currentDecimals;
+            } else {
+                tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
+            }
+
+            nextFocusCell = id;
+            void saveContent(tableData);
+            flushSave?.();
+
+            if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
+            if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
+
+            if (key === 'type' || key === 'decimals') {
+                const ta = tb.activeInput as HTMLTextAreaElement;
+                const shown = getDisplayStringForCell(id);
+                ta.value = shown;
+                if (formulaBarLink?.cellId === id) formulaBarInput.value = shown;
+                ta.style.height = 'auto';
+                ta.style.height = `${ta.scrollHeight}px`;
+                const tdEl = ta.closest('td');
+                if (tdEl) applyFormulaCellStyle(ta, tdEl as HTMLElement, id);
+            }
+        });
+        wrapper.insertBefore(toolbar.el, wrapper.firstChild);
+    }
 
     // --- 3. HEADERS ---
     if (settings.showHeaders) {

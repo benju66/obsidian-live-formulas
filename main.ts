@@ -1,6 +1,30 @@
-import { Plugin, MarkdownPostProcessorContext, Menu, Editor, MarkdownView } from 'obsidian';
+import {
+    Plugin,
+    MarkdownPostProcessorContext,
+    MarkdownRenderChild,
+    Menu,
+    Editor,
+    MarkdownView,
+    debounce,
+} from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
+
+/** Flushes debounced vault writes when the preview block is torn down (navigate away, re-render, etc.). */
+class LiveTableSaveLifecycle extends MarkdownRenderChild {
+    constructor(
+        containerEl: HTMLElement,
+        private readonly requestSave: { run: () => void },
+        private readonly unregister: () => void
+    ) {
+        super(containerEl);
+    }
+
+    onunload(): void {
+        this.requestSave.run();
+        this.unregister();
+    }
+}
 
 const DEFAULT_TABLE_JSON = JSON.stringify(
     {
@@ -16,6 +40,9 @@ const DEFAULT_TABLE_JSON = JSON.stringify(
 
 export default class LiveFormulasPlugin extends Plugin {
     settings: LiveFormulasSettings;
+
+    /** Debounced savers still waiting to write; flushed on block unload and plugin unload. */
+    private pendingTableSaves = new Set<{ run: () => void }>();
 
     async onload() {
         await this.loadSettings();
@@ -49,18 +76,33 @@ export default class LiveFormulasPlugin extends Plugin {
                     return;
                 }
 
-                const saveContent = async (newData: any) => {
+                // Third argument `true` = resetTimer: postpone until 600ms after the last call (standard debounce).
+                const requestSave = debounce((newData: any) => {
                     const section = ctx.getSectionInfo(el);
                     if (!section) return;
-                    const file = this.app.workspace.getActiveFile();
+                    const file = this.app.vault.getFileByPath(ctx.sourcePath);
                     if (!file) return;
 
-                    await this.app.vault.process(file, (data) => {
+                    void this.app.vault.process(file, (data) => {
                         const lines = data.split('\n');
                         const newJson = JSON.stringify(newData, null, 2);
                         lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
                         return lines.join('\n');
                     });
+                }, 600, true);
+
+                this.pendingTableSaves.add(requestSave);
+                const unregisterSaver = () => {
+                    this.pendingTableSaves.delete(requestSave);
+                };
+                ctx.addChild(new LiveTableSaveLifecycle(el, requestSave, unregisterSaver));
+
+                const saveContent = async (newData: any) => {
+                    requestSave(newData);
+                };
+
+                const flushSave = () => {
+                    requestSave.run();
                 };
 
                 const toggleHeaders = async () => {
@@ -68,10 +110,10 @@ export default class LiveFormulasPlugin extends Plugin {
                     await this.saveSettings();
 
                     el.empty();
-                    renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders);
+                    renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders, flushSave);
                 };
 
-                renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders);
+                renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders, flushSave);
             }
         );
     }
@@ -93,5 +135,9 @@ export default class LiveFormulasPlugin extends Plugin {
     }
 
     onunload() {
+        for (const saver of this.pendingTableSaves) {
+            saver.run();
+        }
+        this.pendingTableSaves.clear();
     }
 }
