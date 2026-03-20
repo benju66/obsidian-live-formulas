@@ -93,7 +93,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         return out;
     };
 
-    const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void) => {
+    const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void): boolean => {
         const prior = tableData[id];
         const priorStr = prior !== undefined ? prior.toString() : '';
         const newValue = ta.value.trim();
@@ -106,10 +106,13 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             }
             tableData[id] = parsed;
             saveContent(tableData);
+            adjust();
+            return true; // We saved, table will rebuild!
         } else {
             ta.value = getDisplayStringForCell(id);
+            adjust();
+            return false; // No changes, no rebuild
         }
-        adjust();
     };
 
     const applyFormulaCellStyle = (ta: HTMLTextAreaElement, td: HTMLElement, id: string) => {
@@ -137,8 +140,15 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         const movingToOtherCell = rt instanceof HTMLTextAreaElement && table.contains(rt);
 
         link.input.value = formulaBarInput.value;
-        commitCellValue(link.input, link.cellId, link.adjustHeight);
+        const didSave = commitCellValue(link.input, link.cellId, link.adjustHeight);
         applyFormulaCellStyle(link.input, link.td, link.cellId);
+
+        // NEW: If we saved, capture the cell the user just clicked so focus survives the rebuild
+        if (didSave && movingToOtherCell) {
+            const col = (rt as HTMLElement).getAttribute('data-col');
+            const row = (rt as HTMLElement).getAttribute('data-row');
+            if (col && row) nextFocusCell = `${col}${row}`;
+        }
 
         if (!movingToOtherCell) {
             formulaBarInput.value = '';
@@ -239,8 +249,17 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
                 toolbar?.hide();
                 input.style.background = 'transparent';
-                commitCellValue(input, cellId, adjustHeight);
+
+                // Track if a save happened
+                const didSave = commitCellValue(input, cellId, adjustHeight);
                 applyFormulaCellStyle(input, td, cellId);
+
+                // NEW: If we saved, capture the cell the user just clicked
+                if (didSave && rt instanceof HTMLTextAreaElement && table.contains(rt)) {
+                    const col = rt.getAttribute('data-col');
+                    const row = rt.getAttribute('data-row');
+                    if (col && row) nextFocusCell = `${col}${row}`;
+                }
 
                 setTimeout(() => {
                     const ae = document.activeElement;
