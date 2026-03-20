@@ -33,13 +33,19 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
     const toolbar = settings.showToolbar ? new TableToolbar(wrapper, (key, val) => {
         const tb = toolbar;
         if (!tb) return;
+
+        if (key === 'toggleHeaders') {
+            if (toggleHeaders) toggleHeaders();
+            return;
+        }
+
         const id = tb.activeCellId;
         if (!id || !tb.activeInput) return;
         if (!tableData._format[id]) tableData._format[id] = {};
 
         if (key === 'type') {
             const currentType = tableData._format[id].type;
-            if (currentType === val || (!currentType && val === 'currency' && settings.currencySymbol)) {
+            if (currentType === val) {
                 tableData._format[id].type = 'plain';
             } else {
                 tableData._format[id].type = val;
@@ -56,14 +62,11 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
         }
 
+        nextFocusCell = id;
         saveContent(tableData);
 
         if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
         if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
-
-        if (key === 'type' || key === 'decimals') {
-            tb.activeInput.blur();
-        }
     }) : null;
 
     const container = wrapper.createEl('div', { attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: visible;" } });
@@ -89,16 +92,22 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         else if (typeof raw === 'number') num = raw;
 
         if (num !== null) {
-            const useCurrency = fmt.type === 'currency' || (!fmt.type && settings.currencySymbol);
+            const useCurrency = fmt.type === 'currency';
             const usePercent = fmt.type === 'percent';
-            const plain = fmt.type === 'plain';
 
-            const decimals = fmt.decimals !== undefined ? fmt.decimals : 2;
-            const formatOptions = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
+            let decimals: number | undefined = fmt.decimals;
+            if (decimals === undefined) {
+                if (useCurrency) decimals = 2;
+                else decimals = undefined;
+            }
 
-            if (usePercent && !plain) {
+            const formatOptions = decimals !== undefined
+                ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+                : {};
+
+            if (usePercent) {
                 out = `${(num * 100).toLocaleString('en-US', formatOptions)}%`;
-            } else if (useCurrency && !plain) {
+            } else if (useCurrency) {
                 out = `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', formatOptions)}`;
             } else {
                 out = num.toLocaleString('en-US', formatOptions);
@@ -195,7 +204,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             const td = tr.createEl('td', { attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" } });
             const input = td.createEl('textarea', {
                 attr: {
-                    'data-col': c, 'data-row': r.toString(), rows: "1",
+                    'data-col': c, 'data-row': r.toString(), rows: "1", spellcheck: "true",
                     style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || 'left'}; font-weight: ${cellFormat.bold ? 'bold' : 'normal'}; font-family: ${typeof rawData === 'number' ? 'monospace' : 'inherit'}; resize: none; overflow: hidden; word-wrap: break-word; white-space: pre-wrap; display: block; line-height: 1.4;`
                 }
             }) as HTMLTextAreaElement;
@@ -317,7 +326,10 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
             // --- CONTEXT MENU ---
             input.addEventListener('contextmenu', (e) => {
-                if (e.shiftKey) return;
+                if (e.shiftKey) {
+                    e.stopPropagation();
+                    return;
+                }
 
                 e.preventDefault();
                 const menu = new Menu();
@@ -340,19 +352,10 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         const addColBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
         const addRowBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
 
-        const toggleHeadersBtn = wrapper.createEl('button', {
-            text: settings.showHeaders ? "H-" : "H+",
-            attr: { title: "Toggle Row/Col Headers", style: `${btnStyle} top: -34px; left: 0; width: 32px; height: 24px; font-size: 12px;` }
-        });
-
-        wrapper.addEventListener('mouseenter', () => { addColBtn.style.opacity = '1'; addRowBtn.style.opacity = '1'; toggleHeadersBtn.style.opacity = '1'; });
-        wrapper.addEventListener('mouseleave', () => { addColBtn.style.opacity = '0'; addRowBtn.style.opacity = '0'; toggleHeadersBtn.style.opacity = '0'; });
+        wrapper.addEventListener('mouseenter', () => { addColBtn.style.opacity = '1'; addRowBtn.style.opacity = '1'; });
+        wrapper.addEventListener('mouseleave', () => { addColBtn.style.opacity = '0'; addRowBtn.style.opacity = '0'; });
 
         addColBtn.addEventListener('click', () => Actions.insertCol(tableData, maxColCode + 1, rows, maxColCode, saveContent));
         addRowBtn.addEventListener('click', () => Actions.insertRow(tableData, rows + 1, maxColCode, saveContent));
-
-        if (toggleHeaders) {
-            toggleHeadersBtn.addEventListener('click', () => toggleHeaders());
-        }
     }
 };

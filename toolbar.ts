@@ -28,6 +28,8 @@ export class TableToolbar {
         createBtn('.00', (e) => this.onFormat('decimals', 'inc'));
         createBtn('.0', (e) => this.onFormat('decimals', 'dec'));
 
+        createBtn('H±', (e) => this.onFormat('toggleHeaders', null));
+
         createBtn('fx', (e) => {
             const menu = new Menu();
             menu.addItem(i => i.setTitle('Sum Range').onClick(() => { if(this.activeInput) this.activeInput.value = '=SUM(B1:B5)'; }));
