@@ -89,7 +89,7 @@ export default class LiveFormulasPlugin extends Plugin {
                         lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, newJson);
                         return lines.join('\n');
                     });
-                }, 600, true);
+                }, 3000, true);
 
                 this.pendingTableSaves.add(requestSave);
                 const unregisterSaver = () => {
