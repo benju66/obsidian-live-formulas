@@ -66,7 +66,9 @@ export default class LiveFormulasPlugin extends Plugin {
                 const toggleHeaders = async () => {
                     this.settings.showHeaders = !this.settings.showHeaders;
                     await this.saveSettings();
-                    await saveContent(tableData);
+
+                    el.empty();
+                    renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders);
                 };
 
                 renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders);

@@ -35,6 +35,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         if (!tb) return;
 
         if (key === 'toggleHeaders') {
+            if (tb.activeCellId) nextFocusCell = tb.activeCellId;
             if (toggleHeaders) toggleHeaders();
             return;
         }
@@ -118,24 +119,34 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
     const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void): boolean => {
         const prior = tableData[id];
-        const priorStr = prior !== undefined ? prior.toString() : '';
         const newValue = ta.value.trim();
-        if (newValue !== priorStr) {
-            let parsed: any = newValue;
-            if (newValue !== '' && !newValue.startsWith('=')) {
-                const stripped = newValue.replace(/,/g, '');
-                const asNum = Number(stripped);
-                if (!isNaN(asNum) && stripped !== '') parsed = asNum;
+
+        let parsed: any = newValue;
+        let isNumber = false;
+
+        if (newValue !== '' && !newValue.startsWith('=')) {
+            const stripped = newValue.replace(/,/g, '');
+            const asNum = Number(stripped);
+            if (!isNaN(asNum) && stripped !== '') {
+                parsed = asNum;
+                isNumber = true;
             }
-            tableData[id] = parsed;
-            saveContent(tableData);
-            adjust();
-            return true; // We saved, table will rebuild!
-        } else {
+        }
+
+        if (isNumber && typeof prior === 'number' && parsed === prior) {
             ta.value = getDisplayStringForCell(id);
             adjust();
-            return false; // No changes, no rebuild
+            return false;
+        } else if (!isNumber && newValue === (prior !== undefined ? prior.toString() : '')) {
+            ta.value = getDisplayStringForCell(id);
+            adjust();
+            return false;
         }
+
+        tableData[id] = parsed;
+        saveContent(tableData);
+        adjust();
+        return true;
     };
 
     const applyFormulaCellStyle = (ta: HTMLTextAreaElement, td: HTMLElement, id: string) => {
@@ -227,13 +238,22 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
             input.addEventListener('focus', () => {
                 formulaBarLink = { input, cellId, adjustHeight, td };
+
+                let editValue = rawData.toString();
+                if (typeof rawData === 'number') {
+                    let dec = cellFormat.decimals;
+                    if (dec === undefined && cellFormat.type === 'currency') dec = 2;
+                    if (dec !== undefined) editValue = rawData.toFixed(dec);
+                }
+
                 if (skipCellPopulateOnFocus) {
                     skipCellPopulateOnFocus = false;
                     formulaBarInput.value = input.value;
                 } else {
-                    input.value = rawData.toString();
-                    formulaBarInput.value = rawData.toString();
+                    input.value = editValue;
+                    formulaBarInput.value = editValue;
                 }
+
                 input.style.background = 'var(--background-modifier-active-hover)';
                 toolbar?.show(input, cellId, td, r);
                 adjustHeight();
