@@ -75,6 +75,79 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
     const table = container.createEl('table', { attr: { style: "width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed;" } });
 
+    const getDisplayStringForCell = (id: string): string => {
+        const fmt = tableData._format[id] || {};
+        const raw = tableData[id] !== undefined ? tableData[id] : "";
+        let out = raw.toString();
+        const formula = typeof raw === 'string' && raw.startsWith('=');
+        let num: number | null = null;
+        if (formula) num = evaluateMath(raw, tableData);
+        else if (typeof raw === 'number') num = raw;
+        if (num !== null) {
+            const useCurrency = fmt.type === 'currency' || (!fmt.type && settings.currencySymbol);
+            const plain = fmt.type === 'plain';
+            out = useCurrency && !plain
+                ? `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                : num.toLocaleString('en-US', { minimumFractionDigits: 2 });
+        }
+        return out;
+    };
+
+    const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void) => {
+        const prior = tableData[id];
+        const priorStr = prior !== undefined ? prior.toString() : '';
+        const newValue = ta.value.trim();
+        if (newValue !== priorStr) {
+            let parsed: any = newValue;
+            if (newValue !== '' && !newValue.startsWith('=')) {
+                const stripped = newValue.replace(/,/g, '');
+                const asNum = Number(stripped);
+                if (!isNaN(asNum) && stripped !== '') parsed = asNum;
+            }
+            tableData[id] = parsed;
+            saveContent(tableData);
+        } else {
+            ta.value = getDisplayStringForCell(id);
+        }
+        adjust();
+    };
+
+    const applyFormulaCellStyle = (ta: HTMLTextAreaElement, td: HTMLElement, id: string) => {
+        const raw = tableData[id];
+        const formula = typeof raw === 'string' && raw.startsWith('=');
+        if (formula) {
+            ta.style.color = 'var(--text-accent)';
+            td.style.backgroundColor = 'var(--background-secondary)';
+        } else {
+            ta.style.color = '';
+            td.style.backgroundColor = '';
+        }
+    };
+
+    let skipCellPopulateOnFocus = false;
+    type FormulaBarLink = { input: HTMLTextAreaElement; cellId: string; adjustHeight: () => void; td: HTMLElement };
+    let formulaBarLink: FormulaBarLink | null = null;
+
+    formulaBarInput.addEventListener('blur', (ev) => {
+        const rt = ev.relatedTarget as Node | null;
+        const link = formulaBarLink;
+        if (!link) return;
+        if (rt === link.input) return;
+
+        const movingToOtherCell = rt instanceof HTMLTextAreaElement && table.contains(rt);
+
+        link.input.value = formulaBarInput.value;
+        commitCellValue(link.input, link.cellId, link.adjustHeight);
+        applyFormulaCellStyle(link.input, link.td, link.cellId);
+
+        if (!movingToOtherCell) {
+            formulaBarInput.value = '';
+            formulaBarInput.oninput = null;
+            formulaBarInput.onkeydown = null;
+            formulaBarLink = null;
+        }
+    });
+
     // --- 3. HEADERS ---
     if (settings.showHeaders) {
         const hr = table.createEl('tr');
@@ -92,29 +165,8 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             const cellId = `${c}${r}`;
             const cellFormat = tableData._format[cellId] || {};
             const rawData = tableData[cellId] !== undefined ? tableData[cellId] : "";
-            
-            let displayValue = rawData.toString();
+            const displayValue = getDisplayStringForCell(cellId);
             const isFormula = typeof rawData === 'string' && rawData.startsWith('=');
-            let numericValue: number | null = null;
-
-            // 1. Evaluate whether the cell holds a valid number or formula
-            if (isFormula) {
-                numericValue = evaluateMath(rawData, tableData);
-            } else if (typeof rawData === 'number') {
-                numericValue = rawData;
-            }
-
-            // 2. Apply formatting to ALL numeric values
-            if (numericValue !== null) {
-                const useCurrency = cellFormat.type === 'currency' || (!cellFormat.type && settings.currencySymbol);
-                const isExplicitlyPlain = cellFormat.type === 'plain';
-
-                if (useCurrency && !isExplicitlyPlain) {
-                    displayValue = `${settings.currencySymbol || '$'}${numericValue.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-                } else {
-                    displayValue = numericValue.toLocaleString('en-US', {minimumFractionDigits: 2});
-                }
-            }
 
             const td = tr.createEl('td', { attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" } });
             const input = td.createEl('textarea', {
@@ -141,12 +193,18 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
             }
 
             input.addEventListener('focus', () => {
-                input.value = rawData.toString();
+                formulaBarLink = { input, cellId, adjustHeight, td };
+                if (skipCellPopulateOnFocus) {
+                    skipCellPopulateOnFocus = false;
+                    formulaBarInput.value = input.value;
+                } else {
+                    input.value = rawData.toString();
+                    formulaBarInput.value = rawData.toString();
+                }
                 input.style.background = 'var(--background-modifier-active-hover)';
                 toolbar?.show(input, cellId, td, r);
                 adjustHeight();
 
-                formulaBarInput.value = rawData.toString();
                 formulaBarInput.oninput = (e) => {
                     input.value = (e.target as HTMLInputElement).value;
                     adjustHeight();
@@ -155,32 +213,34 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
                 formulaBarInput.onkeydown = (e) => {
                     if (e.key === 'Enter') {
                         e.preventDefault();
+                        input.value = formulaBarInput.value;
+                        adjustHeight();
+                        skipCellPopulateOnFocus = true;
                         input.focus();
                         input.blur();
                     }
                 };
             });
 
-            input.addEventListener('input', adjustHeight);
+            input.addEventListener('input', () => {
+                adjustHeight();
+                if (formulaBarLink?.input === input) {
+                    formulaBarInput.value = input.value;
+                }
+            });
 
-            input.addEventListener('blur', () => {
+            input.addEventListener('blur', (ev) => {
+                const rt = ev.relatedTarget as Node | null;
+                if (rt === formulaBarInput || (rt && formulaBarWrapper.contains(rt))) {
+                    input.style.background = 'transparent';
+                    toolbar?.hide();
+                    return;
+                }
+
                 toolbar?.hide();
                 input.style.background = 'transparent';
-                const newValue = input.value.trim();
-                if (newValue !== rawData.toString()) {
-                    let parsedValue: any = newValue;
-                    if (newValue !== "" && !newValue.startsWith('=')) {
-                        const stripped = newValue.replace(/,/g, '');
-                        const asNum = Number(stripped);
-                        if (!isNaN(asNum) && stripped !== "") {
-                            parsedValue = asNum;
-                        }
-                    }
-                    tableData[cellId] = parsedValue;
-                    saveContent(tableData);
-                } else { input.value = displayValue; }
-
-                adjustHeight();
+                commitCellValue(input, cellId, adjustHeight);
+                applyFormulaCellStyle(input, td, cellId);
 
                 setTimeout(() => {
                     const ae = document.activeElement;
@@ -189,6 +249,7 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
                         formulaBarInput.value = '';
                         formulaBarInput.oninput = null;
                         formulaBarInput.onkeydown = null;
+                        formulaBarLink = null;
                     }
                 }, 50);
             });

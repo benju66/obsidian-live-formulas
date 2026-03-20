@@ -38,11 +38,29 @@ export class TableToolbar {
         this.activeCellId = cellId;
         this.activeInput = input;
         this.el.style.display = 'flex';
-        
-        // Smart Positioning Fix: Flip to bottom if in top row
-        const offset = (row === 1) ? td.offsetHeight + 5 : -38;
-        this.el.style.top = `${td.offsetTop + offset}px`;
-        this.el.style.left = `${td.offsetLeft}px`;
+
+        const parent = this.el.parentElement;
+        if (!parent) return;
+
+        // Use viewport rects so position is correct with a formula bar (or any layout) above the table;
+        // td.offsetTop/offsetLeft are relative to offsetParent (often the table), not the positioned wrapper.
+        const pRect = parent.getBoundingClientRect();
+        const tdRect = td.getBoundingClientRect();
+        const topInParent = tdRect.top - pRect.top + parent.scrollTop;
+        const leftInParent = tdRect.left - pRect.left + parent.scrollLeft;
+        const gap = 6;
+        void this.el.offsetHeight;
+        const toolbarH = this.el.offsetHeight || 38;
+
+        const placeBelow =
+            row === 1 || topInParent < toolbarH + gap;
+
+        if (placeBelow) {
+            this.el.style.top = `${topInParent + tdRect.height + gap}px`;
+        } else {
+            this.el.style.top = `${topInParent - toolbarH - gap}px`;
+        }
+        this.el.style.left = `${leftInParent}px`;
     }
 
     hide() {
