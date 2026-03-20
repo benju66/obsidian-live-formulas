@@ -23,6 +23,11 @@ export class TableToolbar {
 
         createBtn('B', () => this.onFormat('bold', true), true);
         createBtn('$', (e) => this.onFormat('type', 'currency'));
+
+        createBtn('%', (e) => this.onFormat('type', 'percent'));
+        createBtn('.00', (e) => this.onFormat('decimals', 'inc'));
+        createBtn('.0', (e) => this.onFormat('decimals', 'dec'));
+
         createBtn('fx', (e) => {
             const menu = new Menu();
             menu.addItem(i => i.setTitle('Sum Range').onClick(() => { if(this.activeInput) this.activeInput.value = '=SUM(B1:B5)'; }));

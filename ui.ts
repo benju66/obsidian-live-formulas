@@ -6,7 +6,7 @@ import * as Actions from './dataActions';
 
 let nextFocusCell: string | null = null;
 
-export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFormulasSettings, saveContent: (newData: any) => Promise<void>) => {
+export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFormulasSettings, saveContent: (newData: any) => Promise<void>, toggleHeaders?: () => Promise<void>) => {
     if (!tableData._format) tableData._format = {};
 
     // --- 1. DYNAMIC GRID CALCULATOR ---
@@ -37,28 +37,31 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         if (!id || !tb.activeInput) return;
         if (!tableData._format[id]) tableData._format[id] = {};
 
-        // Fix: Properly toggle between 'currency' and 'plain'
-        if (key === 'type' && val === 'currency') {
+        if (key === 'type') {
             const currentType = tableData._format[id].type;
-            // If it's already currency (or default currency), force to 'plain'
-            if (currentType === 'currency' || (!currentType && settings.currencySymbol)) {
+            if (currentType === val || (!currentType && val === 'currency' && settings.currencySymbol)) {
                 tableData._format[id].type = 'plain';
             } else {
-                tableData._format[id].type = 'currency';
+                tableData._format[id].type = val;
             }
+        } else if (key === 'decimals') {
+            let currentDecimals = tableData._format[id].decimals;
+            if (currentDecimals === undefined) currentDecimals = 2;
+
+            if (val === 'inc') currentDecimals++;
+            if (val === 'dec' && currentDecimals > 0) currentDecimals--;
+
+            tableData._format[id].decimals = currentDecimals;
         } else {
             tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
         }
 
         saveContent(tableData);
 
-        // Live DOM Updates
         if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
         if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
 
-        // Visual Feedback for Currency:
-        // Blur the input to stop editing and instantly show the formatted number
-        if (key === 'type') {
+        if (key === 'type' || key === 'decimals') {
             tb.activeInput.blur();
         }
     }) : null;
@@ -81,14 +84,25 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
         let out = raw.toString();
         const formula = typeof raw === 'string' && raw.startsWith('=');
         let num: number | null = null;
+
         if (formula) num = evaluateMath(raw, tableData);
         else if (typeof raw === 'number') num = raw;
+
         if (num !== null) {
             const useCurrency = fmt.type === 'currency' || (!fmt.type && settings.currencySymbol);
+            const usePercent = fmt.type === 'percent';
             const plain = fmt.type === 'plain';
-            out = useCurrency && !plain
-                ? `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                : num.toLocaleString('en-US', { minimumFractionDigits: 2 });
+
+            const decimals = fmt.decimals !== undefined ? fmt.decimals : 2;
+            const formatOptions = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
+
+            if (usePercent && !plain) {
+                out = `${(num * 100).toLocaleString('en-US', formatOptions)}%`;
+            } else if (useCurrency && !plain) {
+                out = `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', formatOptions)}`;
+            } else {
+                out = num.toLocaleString('en-US', formatOptions);
+            }
         }
         return out;
     };
@@ -303,6 +317,8 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
 
             // --- CONTEXT MENU ---
             input.addEventListener('contextmenu', (e) => {
+                if (e.shiftKey) return;
+
                 e.preventDefault();
                 const menu = new Menu();
                 menu.addItem(i => i.setTitle('Insert Row Above').setIcon('arrow-up').onClick(() => Actions.insertRow(tableData, r, maxColCode, saveContent)));
@@ -320,11 +336,23 @@ export const renderTableUI = (el: HTMLElement, tableData: any, settings: LiveFor
     // --- HOVER BUTTONS ---
     if (settings.enableHoverButtons) {
         const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
+
         const addColBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
         const addRowBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
-        wrapper.addEventListener('mouseenter', () => { addColBtn.style.opacity = '1'; addRowBtn.style.opacity = '1'; });
-        wrapper.addEventListener('mouseleave', () => { addColBtn.style.opacity = '0'; addRowBtn.style.opacity = '0'; });
+
+        const toggleHeadersBtn = wrapper.createEl('button', {
+            text: settings.showHeaders ? "H-" : "H+",
+            attr: { title: "Toggle Row/Col Headers", style: `${btnStyle} top: -34px; left: 0; width: 32px; height: 24px; font-size: 12px;` }
+        });
+
+        wrapper.addEventListener('mouseenter', () => { addColBtn.style.opacity = '1'; addRowBtn.style.opacity = '1'; toggleHeadersBtn.style.opacity = '1'; });
+        wrapper.addEventListener('mouseleave', () => { addColBtn.style.opacity = '0'; addRowBtn.style.opacity = '0'; toggleHeadersBtn.style.opacity = '0'; });
+
         addColBtn.addEventListener('click', () => Actions.insertCol(tableData, maxColCode + 1, rows, maxColCode, saveContent));
         addRowBtn.addEventListener('click', () => Actions.insertRow(tableData, rows + 1, maxColCode, saveContent));
+
+        if (toggleHeaders) {
+            toggleHeadersBtn.addEventListener('click', () => toggleHeaders());
+        }
     }
 };

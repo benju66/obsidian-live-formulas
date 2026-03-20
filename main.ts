@@ -63,7 +63,13 @@ export default class LiveFormulasPlugin extends Plugin {
                     });
                 };
 
-                renderTableUI(el, tableData, this.settings, saveContent);
+                const toggleHeaders = async () => {
+                    this.settings.showHeaders = !this.settings.showHeaders;
+                    await this.saveSettings();
+                    await saveContent(tableData);
+                };
+
+                renderTableUI(el, tableData, this.settings, saveContent, toggleHeaders);
             }
         );
     }
