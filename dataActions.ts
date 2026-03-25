@@ -1,5 +1,26 @@
 import { TableState, CellData, columnIndexToLetters, lettersToColumnIndex } from './tableState';
 
+/**
+ * Updates cell references in a formula when a row or column is inserted or deleted.
+ * e.g. shiftFormulaReferences("=SUM(A1:B2)", 'row', 2, 1) -> "=SUM(A2:B3)"
+ */
+const shiftFormulaReferences = (formula: string, type: 'row' | 'col', threshold: number, amount: number): string => {
+    return formula.replace(/\b([A-Z]+)(\d+)\b/gi, (match, colStr, rowStr) => {
+        let c = lettersToColumnIndex(colStr.toUpperCase());
+        let r = parseInt(rowStr, 10);
+
+        if (type === 'row' && r >= threshold) {
+            r += amount;
+        } else if (type === 'col' && c >= threshold) {
+            c += amount;
+        }
+
+        if (r < 1 || c < 1) return '#REF!';
+
+        return `${columnIndexToLetters(c)}${r}`;
+    });
+};
+
 function cloneCell(c: CellData): CellData {
     return {
         value: c.value,
@@ -26,6 +47,14 @@ export const insertRow = (state: TableState, targetRow: number) => {
 
     state.cells = next;
     state.recalculateExtents();
+
+    for (const [, cell] of state.cells) {
+        if (cell.formula) {
+            cell.formula = shiftFormulaReferences(cell.formula, 'row', targetRow, 1);
+            cell.value = cell.formula;
+        }
+    }
+
     state.markDirty();
 };
 
@@ -43,6 +72,14 @@ export const deleteRow = (state: TableState, targetRow: number) => {
 
     state.cells = next;
     state.recalculateExtents();
+
+    for (const [, cell] of state.cells) {
+        if (cell.formula) {
+            cell.formula = shiftFormulaReferences(cell.formula, 'row', targetRow, -1);
+            cell.value = cell.formula;
+        }
+    }
+
     state.markDirty();
 };
 
@@ -68,6 +105,14 @@ export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: 
 
     state.cells = next;
     state.recalculateExtents();
+
+    for (const [, cell] of state.cells) {
+        if (cell.formula) {
+            cell.formula = shiftFormulaReferences(cell.formula, 'col', insertBeforeIndex, 1);
+            cell.value = cell.formula;
+        }
+    }
+
     state.markDirty();
 };
 
@@ -87,5 +132,13 @@ export const deleteCol = (state: TableState, columnIndex: number) => {
 
     state.cells = next;
     state.recalculateExtents();
+
+    for (const [, cell] of state.cells) {
+        if (cell.formula) {
+            cell.formula = shiftFormulaReferences(cell.formula, 'col', columnIndex, -1);
+            cell.value = cell.formula;
+        }
+    }
+
     state.markDirty();
 };
