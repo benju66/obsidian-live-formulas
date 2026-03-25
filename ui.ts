@@ -178,8 +178,19 @@ export const renderTableUI = (
     const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void): boolean => {
         const priorCell = state.getCell(id);
         const prior = priorCell !== undefined ? (priorCell.formula !== undefined ? priorCell.formula : priorCell.value) : undefined;
-        const newValue = ta.value.trim();
 
+        let newValue = ta.value.trim();
+
+        // 1. Balance parens BEFORE any early exits
+        if (newValue.startsWith('=')) {
+            const balanced = balanceFormulaParens(newValue);
+            if (balanced !== newValue) {
+                newValue = balanced;
+                ta.value = balanced; // update the textarea visually immediately
+            }
+        }
+
+        // 2. Now perform the early exit check
         if (newValue === getDisplayStringForCell(id)) {
             adjust();
             return false;
@@ -209,11 +220,13 @@ export const renderTableUI = (
             return false;
         }
 
+        // 3. Save to state
         if (typeof parsed === 'string' && parsed.startsWith('=')) {
             state.setCell(id, { value: parsed, formula: parsed, format: fmt });
         } else {
             state.setCell(id, { value: parsed, formula: undefined, format: fmt });
         }
+
         state.markDirty();
         const { updated, cyclic } = engine.updateCellAndDependents(id);
         if (!cyclic) {
@@ -221,7 +234,8 @@ export const renderTableUI = (
                 if (cid !== id) refreshCellDisplay(cid);
             }
         }
-        adjust();
+
+        // 4. Update the active cell to its final evaluated display string (Fixes visual bugs)
         ta.value = getDisplayStringForCell(id);
         adjust();
         return true;
@@ -426,6 +440,8 @@ export const renderTableUI = (
                         adjustHeight();
                         skipCellPopulateOnFocus = true;
                         input.focus();
+
+                        // Calling blur natively triggers commitCellValue safely
                         input.blur();
                     }
                 };
