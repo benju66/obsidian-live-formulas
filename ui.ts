@@ -21,6 +21,7 @@ export const renderTableUI = (
     toggleHeaders?: () => Promise<void>
 ) => {
     const rerender = () => {
+        state.clearDirty();
         el.empty();
         renderTableUI(el, state, settings, saveStateToFile, toggleHeaders);
     };
@@ -544,11 +545,13 @@ export const renderTableUI = (
             attr: { type: 'button', 'aria-label': 'Add row' },
         });
 
+        addColBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addColBtn.addEventListener('click', () => {
             Actions.insertCol(state, state.maxCol + 1, rows);
             saveStateToFile();
             rerender();
         });
+        addRowBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addRowBtn.addEventListener('click', () => {
             Actions.insertRow(state, rows + 1);
             saveStateToFile();

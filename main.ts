@@ -69,11 +69,28 @@ export default class LiveFormulasPlugin extends Plugin {
                     const file = this.app.vault.getFileByPath(ctx.sourcePath);
                     if (!file) return;
                     const md = state.toMarkdownText();
+
+                    state.clearDirty();
+
                     void this.app.vault.process(file, (data) => {
-                        const lines = data.split(/\r?\n/);
+                        const lines = data.split('\n');
                         const newLines = md.split('\n');
-                        lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, ...newLines);
-                        state.clearDirty();
+
+                        const openLine = lines[section.lineStart] ?? '';
+                        const closeLine = lines[section.lineEnd] ?? '';
+                        if (
+                            openLine.trimStart().startsWith('```live-table') &&
+                            closeLine.trimStart().startsWith('```')
+                        ) {
+                            lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, ...newLines);
+                        } else {
+                            console.warn(
+                                'Live Formulas: Document shifted during async write. Aborting save to prevent corruption.'
+                            );
+                            state.markDirty();
+                            return data;
+                        }
+
                         return lines.join('\n');
                     });
                 };
@@ -89,6 +106,7 @@ export default class LiveFormulasPlugin extends Plugin {
                     this.settings.showHeaders = !this.settings.showHeaders;
                     await this.saveSettings();
 
+                    state.clearDirty();
                     el.empty();
                     renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders);
                 };
