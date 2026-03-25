@@ -34,7 +34,7 @@ const balanceFormulaParens = (formula: string): string => {
         if (ch === '(') depth++;
         else if (ch === ')') depth--;
     }
-    if (depth > 0) return formula + ')'.repeat(depth);
+    if (depth > 0) return formula + ')'.repeat(Math.min(depth, 32));
     return formula;
 };
 
@@ -210,11 +210,6 @@ export const renderTableUI = (
         }
 
         if (typeof parsed === 'string' && parsed.startsWith('=')) {
-            const balanced = balanceFormulaParens(parsed);
-            if (balanced !== parsed) {
-                parsed = balanced;
-                ta.value = balanced;
-            }
             state.setCell(id, { value: parsed, formula: parsed, format: fmt });
         } else {
             state.setCell(id, { value: parsed, formula: undefined, format: fmt });
