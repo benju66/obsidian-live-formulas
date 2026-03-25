@@ -5,14 +5,21 @@ export interface LiveFormulasSettings {
     currencySymbol: string;
     enableHoverButtons: boolean;
     showToolbar: boolean;
+    /** When `showToolbar` is true, whether the ribbon is visible (can be collapsed in the UI). */
+    toolbarVisible: boolean;
     showHeaders: boolean;
+    defaultRows: number;
+    defaultCols: number;
 }
 
 export const DEFAULT_SETTINGS: LiveFormulasSettings = {
     currencySymbol: '$',
     enableHoverButtons: true,
     showToolbar: true,
+    toolbarVisible: true,
     showHeaders: true,
+    defaultRows: 2,
+    defaultCols: 2,
 }
 
 export class LiveFormulasSettingTab extends PluginSettingTab {
@@ -54,6 +61,38 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                     this.plugin.settings.showToolbar = value;
                     await this.plugin.saveSettings();
                 }));
+
+        new Setting(containerEl)
+            .setName('Default table rows')
+            .setDesc('Used when inserting a new live table (1–50).')
+            .addText((text) =>
+                text
+                    .setPlaceholder('2')
+                    .setValue(String(this.plugin.settings.defaultRows))
+                    .onChange(async (value) => {
+                        const n = parseInt(value.replace(/\D/g, ''), 10);
+                        const clamped = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 2;
+                        this.plugin.settings.defaultRows = clamped;
+                        text.setValue(String(clamped));
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName('Default table columns')
+            .setDesc('Used when inserting a new live table (1–50).')
+            .addText((text) =>
+                text
+                    .setPlaceholder('2')
+                    .setValue(String(this.plugin.settings.defaultCols))
+                    .onChange(async (value) => {
+                        const n = parseInt(value.replace(/\D/g, ''), 10);
+                        const clamped = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 2;
+                        this.plugin.settings.defaultCols = clamped;
+                        text.setValue(String(clamped));
+                        await this.plugin.saveSettings();
+                    })
+            );
 
         new Setting(containerEl)
             .setName('Show Row/Column Headers')

@@ -312,13 +312,17 @@ export class TableState {
         this.recomputeExtents();
     }
 
-    seedDefaultGrid(): void {
-        this.maxRow = 2;
-        this.maxCol = 2;
-        this.setCell('A1', { value: '', format: emptyFormat() });
-        this.setCell('B1', { value: '', format: emptyFormat() });
-        this.setCell('A2', { value: '', format: emptyFormat() });
-        this.setCell('B2', { value: '', format: emptyFormat() });
+    /** Empty grid; `rows` / `cols` are 1–based counts (default 2×2). */
+    seedDefaultGrid(rows = 2, cols = 2): void {
+        this.cells.clear();
+        this.maxRow = rows;
+        this.maxCol = cols;
+        for (let r = 1; r <= rows; r++) {
+            for (let c = 1; c <= cols; c++) {
+                const colStr = columnIndexToLetters(c);
+                this.setCell(`${colStr}${r}`, { value: '', format: emptyFormat() });
+            }
+        }
     }
 
     static fromLegacyJson(obj: Record<string, any>): TableState {

@@ -27,19 +27,31 @@ const ALIGN_CLASSES = [
     'live-formula-cell-input--align-right',
 ] as const;
 
+const balanceFormulaParens = (formula: string): string => {
+    if (!formula.startsWith('=')) return formula;
+    let depth = 0;
+    for (const ch of formula) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+    }
+    if (depth > 0) return formula + ')'.repeat(depth);
+    return formula;
+};
+
 export const renderTableUI = (
     el: HTMLElement,
     state: TableState,
     settings: LiveFormulasSettings,
     saveStateToFile: () => void,
-    toggleHeaders?: () => Promise<void>
+    toggleHeaders?: () => Promise<void>,
+    persistPluginSettings?: () => Promise<void>
 ) => {
     const rerender = () => {
         formulaDragState = null;
         justInjectedFormula = false;
         state.clearDirty();
         el.empty();
-        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders);
+        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders, persistPluginSettings);
     };
 
     const engine = new MathEngine(state);
@@ -59,6 +71,15 @@ export const renderTableUI = (
 
     const formulaBarWrapper = container.createEl('div', { cls: 'live-formula-formula-bar' });
     formulaBarWrapper.createEl('span', { text: 'fx', cls: 'live-formula-formula-bar-label' });
+    let ribbonToggleBtn: HTMLButtonElement | null = null;
+    if (settings.showToolbar) {
+        ribbonToggleBtn = formulaBarWrapper.createEl('button', {
+            type: 'button',
+            cls: 'live-formula-formula-bar-ribbon-toggle',
+            text: '⌄',
+            attr: { 'aria-label': 'Toggle formatting ribbon', title: 'Toggle formatting ribbon' },
+        });
+    }
     const formulaBarInput = formulaBarWrapper.createEl('input', {
         type: 'text',
         cls: 'live-formula-formula-bar-input',
@@ -158,6 +179,12 @@ export const renderTableUI = (
         const priorCell = state.getCell(id);
         const prior = priorCell !== undefined ? (priorCell.formula !== undefined ? priorCell.formula : priorCell.value) : undefined;
         const newValue = ta.value.trim();
+
+        if (newValue === getDisplayStringForCell(id)) {
+            adjust();
+            return false;
+        }
+
         const fmt = { ...(priorCell?.format || {}) };
 
         let parsed: any = newValue;
@@ -183,6 +210,11 @@ export const renderTableUI = (
         }
 
         if (typeof parsed === 'string' && parsed.startsWith('=')) {
+            const balanced = balanceFormulaParens(parsed);
+            if (balanced !== parsed) {
+                parsed = balanced;
+                ta.value = balanced;
+            }
             state.setCell(id, { value: parsed, formula: parsed, format: fmt });
         } else {
             state.setCell(id, { value: parsed, formula: undefined, format: fmt });
@@ -294,6 +326,15 @@ export const renderTableUI = (
             }
         });
         container.insertBefore(toolbar.el, tableScroll);
+        toolbar.el.style.display = settings.toolbarVisible !== false ? 'flex' : 'none';
+        ribbonToggleBtn?.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const wasVisible = settings.toolbarVisible !== false;
+            settings.toolbarVisible = !wasVisible;
+            toolbar!.el.style.display = settings.toolbarVisible ? 'flex' : 'none';
+            void persistPluginSettings?.();
+        });
     }
 
     if (settings.showHeaders) {

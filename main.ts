@@ -25,9 +25,11 @@ class LiveTableSaveLifecycle extends MarkdownRenderChild {
     }
 }
 
-function defaultTableMarkdown(): string {
+function defaultTableMarkdown(settings: LiveFormulasSettings): string {
     const s = new TableState();
-    s.seedDefaultGrid();
+    const rows = Math.min(50, Math.max(1, settings.defaultRows));
+    const cols = Math.min(50, Math.max(1, settings.defaultCols));
+    s.seedDefaultGrid(rows, cols);
     return s.toMarkdownText();
 }
 
@@ -108,10 +110,14 @@ export default class LiveFormulasPlugin extends Plugin {
 
                     state.clearDirty();
                     el.empty();
-                    renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders);
+                    renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () =>
+                        this.saveSettings()
+                    );
                 };
 
-                renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders);
+                renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () =>
+                    this.saveSettings()
+                );
             }
         );
     }
@@ -120,7 +126,7 @@ export default class LiveFormulasPlugin extends Plugin {
         const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!activeView) return;
 
-        const block = '```live-table\n' + defaultTableMarkdown() + '\n```\n';
+        const block = '```live-table\n' + defaultTableMarkdown(this.settings) + '\n```\n';
         activeView.editor.replaceSelection(block);
     }
 
