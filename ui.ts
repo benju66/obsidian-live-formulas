@@ -715,15 +715,18 @@ export const renderTableUI = (
         const cellId = cellInput.getAttribute('data-cell-id');
         if (!cellId) return;
 
-        if (e.shiftKey && lastActiveCellId) {
+        if (e.shiftKey) {
             e.preventDefault();
+            e.stopPropagation();
+
+            const anchorId = lastActiveCellId || cellId;
 
             if (!e.ctrlKey && !e.metaKey) {
                 selectedCellIds.clear();
                 wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
             }
 
-            const match1 = lastActiveCellId.match(/^([A-Z]+)(\d+)$/i);
+            const match1 = anchorId.match(/^([A-Z]+)(\d+)$/i);
             const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
 
             if (match1 && match2) {
@@ -742,14 +745,18 @@ export const renderTableUI = (
                     for (let r = minR; r <= maxR; r++) {
                         const id = `${colStr}${r}`;
                         selectedCellIds.add(id);
-                        const el = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+
+                        const el = wrapper.querySelector(`textarea[data-cell-id="${id}"]`);
                         if (el) el.classList.add('is-selected');
                     }
                 }
             }
+
             cellInput.blur();
+            if (!lastActiveCellId) lastActiveCellId = cellId;
         } else if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
+            e.stopPropagation();
 
             if (selectedCellIds.has(cellId)) {
                 selectedCellIds.delete(cellId);
