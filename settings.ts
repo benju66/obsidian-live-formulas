@@ -70,11 +70,18 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                     .setPlaceholder('2')
                     .setValue(String(this.plugin.settings.defaultRows))
                     .onChange(async (value) => {
-                        const n = parseInt(value.replace(/\D/g, ''), 10);
-                        const clamped = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 2;
-                        this.plugin.settings.defaultRows = clamped;
-                        text.setValue(String(clamped));
-                        await this.plugin.saveSettings();
+                        if (value.trim() === '') {
+                            this.plugin.settings.defaultRows = 2;
+                            await this.plugin.saveSettings();
+                            return;
+                        }
+                        let parsed = parseInt(value, 10);
+                        if (!isNaN(parsed)) {
+                            if (parsed < 1) parsed = 1;
+                            if (parsed > 50) parsed = 50;
+                            this.plugin.settings.defaultRows = parsed;
+                            await this.plugin.saveSettings();
+                        }
                     })
             );
 
@@ -86,11 +93,18 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                     .setPlaceholder('2')
                     .setValue(String(this.plugin.settings.defaultCols))
                     .onChange(async (value) => {
-                        const n = parseInt(value.replace(/\D/g, ''), 10);
-                        const clamped = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 2;
-                        this.plugin.settings.defaultCols = clamped;
-                        text.setValue(String(clamped));
-                        await this.plugin.saveSettings();
+                        if (value.trim() === '') {
+                            this.plugin.settings.defaultCols = 2;
+                            await this.plugin.saveSettings();
+                            return;
+                        }
+                        let parsed = parseInt(value, 10);
+                        if (!isNaN(parsed)) {
+                            if (parsed < 1) parsed = 1;
+                            if (parsed > 50) parsed = 50;
+                            this.plugin.settings.defaultCols = parsed;
+                            await this.plugin.saveSettings();
+                        }
                     })
             );
 

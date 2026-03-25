@@ -227,6 +227,8 @@ export const renderTableUI = (
             }
         }
         adjust();
+        ta.value = getDisplayStringForCell(id);
+        adjust();
         return true;
     };
 
@@ -278,7 +280,9 @@ export const renderTableUI = (
             }
         } else if (key === 'decimals') {
             let currentDecimals = cell.format.decimals;
-            if (currentDecimals === undefined) currentDecimals = 2;
+            if (currentDecimals === undefined) {
+                currentDecimals = cell.format.type === 'currency' ? 2 : 0;
+            }
 
             if (val === 'inc') currentDecimals++;
             if (val === 'dec' && currentDecimals > 0) currentDecimals--;
@@ -416,9 +420,6 @@ export const renderTableUI = (
 
                 formulaBarInput.oninput = (e) => {
                     input.value = (e.target as HTMLInputElement).value;
-                    const cellRef = state.ensureCell(cellId);
-                    cellRef.value = input.value;
-                    state.markDirty();
                     adjustHeight();
                 };
 
@@ -427,9 +428,6 @@ export const renderTableUI = (
                         clearFormulaHighlights();
                         e.preventDefault();
                         input.value = formulaBarInput.value;
-                        const cellRef = state.ensureCell(cellId);
-                        cellRef.value = input.value;
-                        state.markDirty();
                         adjustHeight();
                         skipCellPopulateOnFocus = true;
                         input.focus();
@@ -440,9 +438,6 @@ export const renderTableUI = (
 
             input.addEventListener('input', () => {
                 adjustHeight();
-                const cellRef = state.ensureCell(cellId);
-                cellRef.value = input.value;
-                state.markDirty();
                 if (formulaBarLink?.input === input) {
                     formulaBarInput.value = input.value;
                 }
