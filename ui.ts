@@ -3,7 +3,7 @@ import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
 import * as Actions from './dataActions';
-import { TableState, CellData, lettersToColumnIndex } from './tableState';
+import { TableState, CellData, lettersToColumnIndex, columnIndexToLetters } from './tableState';
 
 let nextFocusCell: string | null = null;
 
@@ -29,6 +29,7 @@ export const renderTableUI = (
     const engine = new MathEngine(state);
     const cellInputs = new Map<string, { ta: HTMLTextAreaElement; td: HTMLElement; adjustHeight: () => void }>();
     const selectedCellIds = new Set<string>();
+    let lastActiveCellId: string | null = null;
 
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
@@ -310,6 +311,7 @@ export const renderTableUI = (
 
             input.addEventListener('focus', () => {
                 formulaBarLink = { input, cellId, adjustHeight, td };
+                lastActiveCellId = cellId;
 
                 input.classList.add('is-linked-focus');
                 td.classList.add('is-linked-focus');
@@ -509,7 +511,7 @@ export const renderTableUI = (
             const t = e.target as HTMLElement;
             const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
             if (!ta || !table.contains(ta)) return;
-            if (e.ctrlKey || e.metaKey) {
+            if (e.ctrlKey || e.metaKey || e.shiftKey) {
                 e.preventDefault();
             }
         },
@@ -524,7 +526,40 @@ export const renderTableUI = (
         const cellId = cellInput.getAttribute('data-cell-id');
         if (!cellId) return;
 
-        if (e.ctrlKey || e.metaKey) {
+        if (e.shiftKey && lastActiveCellId) {
+            e.preventDefault();
+
+            if (!e.ctrlKey && !e.metaKey) {
+                selectedCellIds.clear();
+                wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
+            }
+
+            const match1 = lastActiveCellId.match(/^([A-Z]+)(\d+)$/i);
+            const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
+
+            if (match1 && match2) {
+                const c1 = lettersToColumnIndex(match1[1]);
+                const r1 = parseInt(match1[2], 10);
+                const c2 = lettersToColumnIndex(match2[1]);
+                const r2 = parseInt(match2[2], 10);
+
+                const minC = Math.min(c1, c2);
+                const maxC = Math.max(c1, c2);
+                const minR = Math.min(r1, r2);
+                const maxR = Math.max(r1, r2);
+
+                for (let c = minC; c <= maxC; c++) {
+                    const colStr = columnIndexToLetters(c);
+                    for (let r = minR; r <= maxR; r++) {
+                        const id = `${colStr}${r}`;
+                        selectedCellIds.add(id);
+                        const el = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+                        if (el) el.classList.add('is-selected');
+                    }
+                }
+            }
+            cellInput.blur();
+        } else if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
 
             if (selectedCellIds.has(cellId)) {
@@ -535,9 +570,11 @@ export const renderTableUI = (
                 cellInput.classList.add('is-selected');
                 cellInput.blur();
             }
+            lastActiveCellId = cellId;
         } else {
             selectedCellIds.clear();
             wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
+            lastActiveCellId = cellId;
         }
     });
 
