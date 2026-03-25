@@ -1,4 +1,4 @@
-import type { TableState } from './tableState';
+import { type TableState, columnIndexToLetters, lettersToColumnIndex } from './tableState';
 
 /** Masks scientific notation so `1e-3` is not mistaken for cell E3. */
 export function maskScientificNotation(input: string): { text: string; tokens: string[] } {
@@ -35,10 +35,19 @@ export function extractCellRefsFromFormula(formula: string): string[] {
         const sr = parseInt(m[2], 10);
         const ec = m[3];
         const er = parseInt(m[4], 10);
-        if (sc === ec) {
-            const lo = Math.min(sr, er);
-            const hi = Math.max(sr, er);
-            for (let r = lo; r <= hi; r++) refs.add(`${sc}${r}`);
+
+        const c1 = lettersToColumnIndex(sc);
+        const c2 = lettersToColumnIndex(ec);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        const minR = Math.min(sr, er);
+        const maxR = Math.max(sr, er);
+
+        for (let col = minC; col <= maxC; col++) {
+            const colStr = columnIndexToLetters(col);
+            for (let row = minR; row <= maxR; row++) {
+                refs.add(`${colStr}${row}`);
+            }
         }
     }
 

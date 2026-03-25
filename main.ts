@@ -70,7 +70,7 @@ export default class LiveFormulasPlugin extends Plugin {
                     if (!file) return;
                     const md = state.toMarkdownText();
                     void this.app.vault.process(file, (data) => {
-                        const lines = data.split('\n');
+                        const lines = data.split(/\r?\n/);
                         const newLines = md.split('\n');
                         lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, ...newLines);
                         state.clearDirty();

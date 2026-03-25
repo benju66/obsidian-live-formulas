@@ -443,18 +443,21 @@ export const renderTableUI = (
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Above').setIcon('arrow-up').onClick(() => {
                         Actions.insertRow(state, r);
+                        saveStateToFile();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Below').setIcon('arrow-down').onClick(() => {
                         Actions.insertRow(state, r + 1);
+                        saveStateToFile();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Delete Row').setIcon('trash').onClick(() => {
                         Actions.deleteRow(state, r);
+                        saveStateToFile();
                         rerender();
                     })
                 );
@@ -462,18 +465,21 @@ export const renderTableUI = (
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Left').setIcon('arrow-left').onClick(() => {
                         Actions.insertCol(state, colIdx, rows);
+                        saveStateToFile();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Right').setIcon('arrow-right').onClick(() => {
                         Actions.insertCol(state, colIdx + 1, rows);
+                        saveStateToFile();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Delete Column').setIcon('trash').onClick(() => {
                         Actions.deleteCol(state, colIdx);
+                        saveStateToFile();
                         rerender();
                     })
                 );
@@ -540,10 +546,12 @@ export const renderTableUI = (
 
         addColBtn.addEventListener('click', () => {
             Actions.insertCol(state, state.maxCol + 1, rows);
+            saveStateToFile();
             rerender();
         });
         addRowBtn.addEventListener('click', () => {
             Actions.insertRow(state, rows + 1);
+            saveStateToFile();
             rerender();
         });
     }

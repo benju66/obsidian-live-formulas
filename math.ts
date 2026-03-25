@@ -1,5 +1,5 @@
 import { Parser } from 'expr-eval';
-import type { TableState } from './tableState';
+import { type TableState, columnIndexToLetters, lettersToColumnIndex } from './tableState';
 import {
     DependencyGraph,
     extractCellRefsFromFormula,
@@ -48,10 +48,15 @@ export function formulaToExpr(formula: string): string {
     e = e.replace(/SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/g, (_m, sc: string, sr: string, ec: string, er: string) => {
         const r1 = parseInt(sr, 10);
         const r2 = parseInt(er, 10);
-        if (sc !== ec) return '0';
+        const c1 = lettersToColumnIndex(sc);
+        const c2 = lettersToColumnIndex(ec);
+
         const parts: string[] = [];
-        for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
-            parts.push(`CELL('${sc}${r}')`);
+        for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+            const colStr = columnIndexToLetters(c);
+            for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+                parts.push(`CELL('${colStr}${r}')`);
+            }
         }
         return parts.length ? `SUM(${parts.join(',')})` : '0';
     });
