@@ -511,6 +511,70 @@ export const renderTableUI = (
             const t = e.target as HTMLElement;
             const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
             if (!ta || !table.contains(ta)) return;
+
+            const cellId = ta.getAttribute('data-cell-id');
+            if (!cellId) return;
+
+            const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
+            const isEditingFormula =
+                !!activeEl &&
+                (activeEl === formulaBarInput ||
+                    (!!formulaBarLink && activeEl === formulaBarLink.input && activeEl.value.startsWith('=')));
+
+            if (isEditingFormula) {
+                e.preventDefault();
+
+                let textToInsert = cellId;
+
+                if (e.shiftKey && lastActiveCellId) {
+                    const match1 = lastActiveCellId.match(/^([A-Z]+)(\d+)$/i);
+                    const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
+                    if (match1 && match2) {
+                        const c1 = lettersToColumnIndex(match1[1]);
+                        const r1 = parseInt(match1[2], 10);
+                        const c2 = lettersToColumnIndex(match2[1]);
+                        const r2 = parseInt(match2[2], 10);
+
+                        const minC = columnIndexToLetters(Math.min(c1, c2));
+                        const maxC = columnIndexToLetters(Math.max(c1, c2));
+                        const minR = Math.min(r1, r2);
+                        const maxR = Math.max(r1, r2);
+
+                        textToInsert = `${minC}${minR}:${maxC}${maxR}`;
+                    }
+                } else if (e.ctrlKey || e.metaKey) {
+                    textToInsert = `,${cellId}`;
+                }
+
+                const startPos = activeEl.selectionStart ?? activeEl.value.length;
+                const endPos = activeEl.selectionEnd ?? activeEl.value.length;
+                const currentVal = activeEl.value;
+
+                const newVal = currentVal.substring(0, startPos) + textToInsert + currentVal.substring(endPos);
+                activeEl.value = newVal;
+
+                const newCursorPos = startPos + textToInsert.length;
+                activeEl.setSelectionRange(newCursorPos, newCursorPos);
+
+                if (activeEl === formulaBarInput && formulaBarLink) {
+                    formulaBarLink.input.value = newVal;
+                    formulaBarLink.adjustHeight();
+                } else if (formulaBarLink) {
+                    formulaBarInput.value = newVal;
+                    formulaBarLink.adjustHeight();
+                }
+
+                if (formulaBarLink) {
+                    const cellRef = state.ensureCell(formulaBarLink.cellId);
+                    cellRef.value = newVal;
+                    state.markDirty();
+                }
+
+                if (!e.shiftKey) lastActiveCellId = cellId;
+
+                return;
+            }
+
             if (e.ctrlKey || e.metaKey || e.shiftKey) {
                 e.preventDefault();
             }
@@ -519,6 +583,14 @@ export const renderTableUI = (
     );
 
     wrapper.addEventListener('click', (e: MouseEvent) => {
+        const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
+        const isEditingFormula =
+            !!activeEl &&
+            (activeEl === formulaBarInput ||
+                (!!formulaBarLink && activeEl === formulaBarLink.input && activeEl.value.startsWith('=')));
+
+        if (isEditingFormula) return;
+
         const target = e.target as HTMLElement;
         const cellInput = target.closest('textarea[data-cell-id]') as HTMLTextAreaElement;
         if (!cellInput) return;
