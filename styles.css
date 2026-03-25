@@ -103,6 +103,16 @@
     color: var(--text-normal);
 }
 
+.live-formula-cell.is-linked-focus {
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+    background-color: var(--background-modifier-active-hover);
+    border-radius: 4px;
+}
+
+.live-formula-cell-input.is-linked-focus {
+    background: var(--background-modifier-active-hover);
+}
+
 .live-formula-cell-input:focus {
     background: var(--background-modifier-active-hover);
 }
@@ -136,20 +146,25 @@
     font-family: var(--font-monospace-theme, monospace);
 }
 
-/* Toolbar */
-.live-formula-toolbar {
-    position: absolute;
-    display: none;
+/* Formatting ribbon (static, below formula bar) */
+.live-formula-toolbar-ribbon {
+    display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 4px;
+    padding: 4px 12px;
     background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    padding: 4px;
-    z-index: 100;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid var(--background-modifier-border);
+    overflow-x: auto;
+}
+
+.live-formula-toolbar-divider {
+    width: 1px;
+    height: 16px;
+    flex-shrink: 0;
+    background: var(--background-modifier-border);
+    margin: 0 4px;
 }
 
 .live-formula-toolbar-btn {

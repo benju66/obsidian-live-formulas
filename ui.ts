@@ -167,6 +167,10 @@ export const renderTableUI = (
         const link = formulaBarLink;
         if (!link) return;
         if (rt === link.input) return;
+        if (rt && toolbar?.el.contains(rt)) return;
+
+        link.input.classList.remove('is-linked-focus');
+        link.td.classList.remove('is-linked-focus');
 
         const movingToOtherCell = rt instanceof HTMLTextAreaElement && table.contains(rt);
 
@@ -185,6 +189,7 @@ export const renderTableUI = (
             formulaBarInput.oninput = null;
             formulaBarInput.onkeydown = null;
             formulaBarLink = null;
+            toolbar?.setActiveCell(null, null);
         }
     });
 
@@ -230,7 +235,7 @@ export const renderTableUI = (
     };
 
     if (settings.showToolbar) {
-        toolbar = new TableToolbar(wrapper, (key, val) => {
+        toolbar = new TableToolbar(container, (key, val) => {
             const tb = toolbar;
             if (!tb) return;
 
@@ -248,7 +253,7 @@ export const renderTableUI = (
                 applyToolbarFormatToCell(id, key, val);
             }
         });
-        wrapper.insertBefore(toolbar.el, wrapper.firstChild);
+        container.insertBefore(toolbar.el, tableScroll);
     }
 
     if (settings.showHeaders) {
@@ -306,6 +311,10 @@ export const renderTableUI = (
             input.addEventListener('focus', () => {
                 formulaBarLink = { input, cellId, adjustHeight, td };
 
+                input.classList.add('is-linked-focus');
+                td.classList.add('is-linked-focus');
+                toolbar?.setActiveCell(input, cellId);
+
                 let editValue = rawData === undefined || rawData === null ? '' : rawData.toString();
                 if (typeof rawData === 'number') {
                     let dec = cellFormat.decimals;
@@ -321,7 +330,6 @@ export const renderTableUI = (
                     formulaBarInput.value = editValue;
                 }
 
-                toolbar?.show(input, cellId, td, r);
                 adjustHeight();
 
                 formulaBarInput.oninput = (e) => {
@@ -359,12 +367,18 @@ export const renderTableUI = (
 
             input.addEventListener('blur', (ev) => {
                 const rt = ev.relatedTarget as Node | null;
-                if (rt === formulaBarInput || (rt && formulaBarWrapper.contains(rt))) {
-                    toolbar?.hide();
+                const focusStaysInSheetChrome =
+                    rt === formulaBarInput ||
+                    (rt && formulaBarWrapper.contains(rt)) ||
+                    (rt && toolbar?.el.contains(rt));
+
+                if (focusStaysInSheetChrome) {
                     return;
                 }
 
-                toolbar?.hide();
+                input.classList.remove('is-linked-focus');
+                td.classList.remove('is-linked-focus');
+                toolbar?.setActiveCell(null, null);
 
                 const didSave = commitCellValue(input, cellId, adjustHeight);
                 syncCellPresentation(input, td, cellId);

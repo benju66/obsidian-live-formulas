@@ -10,7 +10,7 @@ export class TableToolbar {
     activeInput: HTMLInputElement | HTMLTextAreaElement | null = null;
 
     constructor(parent: HTMLElement, private onFormat: (key: string, value: any) => void) {
-        this.el = parent.createEl('div', { cls: 'live-formula-toolbar' });
+        this.el = parent.createEl('div', { cls: 'live-formula-toolbar-ribbon' });
         this.buildButtons();
     }
 
@@ -30,7 +30,15 @@ export class TableToolbar {
         createBtn('%', () => this.onFormat('type', 'percent'));
         createBtn('.00', () => this.onFormat('decimals', 'inc'));
         createBtn('.0', () => this.onFormat('decimals', 'dec'));
-        createBtn('H±', () => this.onFormat('toggleHeaders', null));
+
+        this.el.createEl('div', { cls: 'live-formula-toolbar-divider' });
+
+        createBtn('≡ L', () => this.onFormat('align', 'left'));
+        createBtn('≡ C', () => this.onFormat('align', 'center'));
+        createBtn('≡ R', () => this.onFormat('align', 'right'));
+
+        this.el.createEl('div', { cls: 'live-formula-toolbar-divider' });
+
         createBtn('fx', (e) => {
             const menu = new Menu();
             menu.addItem((i) =>
@@ -45,40 +53,12 @@ export class TableToolbar {
             );
             menu.showAtMouseEvent(e);
         });
-        createBtn('≡ L', () => this.onFormat('align', 'left'));
-        createBtn('≡ C', () => this.onFormat('align', 'center'));
-        createBtn('≡ R', () => this.onFormat('align', 'right'));
+        createBtn('H±', () => this.onFormat('toggleHeaders', null));
     }
 
-    show(input: HTMLInputElement | HTMLTextAreaElement, cellId: string, td: HTMLElement, row: number) {
+    /** Tracks which cell formatting applies to; ribbon stays visible. */
+    setActiveCell(input: HTMLInputElement | HTMLTextAreaElement | null, cellId: string | null) {
         this.activeCellId = cellId;
         this.activeInput = input;
-        this.el.style.display = 'flex';
-
-        const parent = this.el.parentElement;
-        if (!parent) return;
-
-        const pRect = parent.getBoundingClientRect();
-        const tdRect = td.getBoundingClientRect();
-        const topInParent = tdRect.top - pRect.top + parent.scrollTop;
-        const leftInParent = tdRect.left - pRect.left + parent.scrollLeft;
-        const gap = 6;
-        void this.el.offsetHeight;
-        const toolbarH = this.el.offsetHeight || 38;
-
-        const placeBelow = row === 1 || topInParent < toolbarH + gap;
-
-        if (placeBelow) {
-            this.el.style.top = `${topInParent + tdRect.height + gap}px`;
-        } else {
-            this.el.style.top = `${topInParent - toolbarH - gap}px`;
-        }
-        this.el.style.left = `${leftInParent}px`;
-    }
-
-    hide() {
-        this.el.style.display = 'none';
-        this.activeCellId = null;
-        this.activeInput = null;
     }
 }
