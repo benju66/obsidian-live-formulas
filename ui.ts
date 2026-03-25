@@ -7,6 +7,20 @@ import { TableState, CellData, lettersToColumnIndex, columnIndexToLetters } from
 
 let nextFocusCell: string | null = null;
 
+/** Phase 4: drag-to-select range in formulas; module scope so window mouseup / mouseover share one ref. */
+let formulaDragState: {
+    activeInput: HTMLInputElement | HTMLTextAreaElement;
+    anchorCellId: string;
+    startPos: number;
+    endPos: number;
+} | null = null;
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('mouseup', () => {
+        if (formulaDragState) formulaDragState = null;
+    });
+}
+
 const ALIGN_CLASSES = [
     'live-formula-cell-input--align-left',
     'live-formula-cell-input--align-center',
@@ -21,6 +35,7 @@ export const renderTableUI = (
     toggleHeaders?: () => Promise<void>
 ) => {
     const rerender = () => {
+        formulaDragState = null;
         state.clearDirty();
         el.empty();
         renderTableUI(el, state, settings, saveStateToFile, toggleHeaders);
@@ -524,37 +539,51 @@ export const renderTableUI = (
             if (isEditingFormula) {
                 e.preventDefault();
 
-                let textToInsert = cellId;
-
-                if (e.shiftKey && lastActiveCellId) {
-                    const match1 = lastActiveCellId.match(/^([A-Z]+)(\d+)$/i);
-                    const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
-                    if (match1 && match2) {
-                        const c1 = lettersToColumnIndex(match1[1]);
-                        const r1 = parseInt(match1[2], 10);
-                        const c2 = lettersToColumnIndex(match2[1]);
-                        const r2 = parseInt(match2[2], 10);
-
-                        const minC = columnIndexToLetters(Math.min(c1, c2));
-                        const maxC = columnIndexToLetters(Math.max(c1, c2));
-                        const minR = Math.min(r1, r2);
-                        const maxR = Math.max(r1, r2);
-
-                        textToInsert = `${minC}${minR}:${maxC}${maxR}`;
-                    }
-                } else if (e.ctrlKey || e.metaKey) {
-                    textToInsert = `,${cellId}`;
-                }
-
-                const startPos = activeEl.selectionStart ?? activeEl.value.length;
-                const endPos = activeEl.selectionEnd ?? activeEl.value.length;
+                const s = activeEl.selectionStart ?? activeEl.value.length;
+                const end = activeEl.selectionEnd ?? activeEl.value.length;
                 const currentVal = activeEl.value;
 
-                const newVal = currentVal.substring(0, startPos) + textToInsert + currentVal.substring(endPos);
+                let prefix = '';
+                if (e.ctrlKey || e.metaKey) {
+                    const prevChar = currentVal.charAt(s - 1);
+                    if (prevChar && !['(', '=', '+', '-', '*', '/', ','].includes(prevChar)) {
+                        prefix = ',';
+                    }
+                }
+
+                let textToInsert = cellId;
+                let anchor = cellId;
+
+                if (e.shiftKey) {
+                    const anchorId = formulaDragState?.anchorCellId ?? lastActiveCellId;
+                    if (anchorId) {
+                        anchor = anchorId;
+                        const match1 = anchor.match(/^([A-Z]+)(\d+)$/i);
+                        const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
+                        if (match1 && match2) {
+                            const c1 = lettersToColumnIndex(match1[1]);
+                            const r1 = parseInt(match1[2], 10);
+                            const c2 = lettersToColumnIndex(match2[1]);
+                            const r2 = parseInt(match2[2], 10);
+
+                            const minC = columnIndexToLetters(Math.min(c1, c2));
+                            const maxC = columnIndexToLetters(Math.max(c1, c2));
+                            const minR = Math.min(r1, r2);
+                            const maxR = Math.max(r1, r2);
+
+                            textToInsert = `${minC}${minR}:${maxC}${maxR}`;
+                        }
+                    }
+                }
+
+                const insertedString = prefix + textToInsert;
+                const newVal = currentVal.substring(0, s) + insertedString + currentVal.substring(end);
                 activeEl.value = newVal;
 
-                const newCursorPos = startPos + textToInsert.length;
-                activeEl.setSelectionRange(newCursorPos, newCursorPos);
+                const injectionStart = s + prefix.length;
+                const injectionEnd = s + insertedString.length;
+
+                activeEl.setSelectionRange(injectionEnd, injectionEnd);
 
                 if (activeEl === formulaBarInput && formulaBarLink) {
                     formulaBarLink.input.value = newVal;
@@ -570,6 +599,13 @@ export const renderTableUI = (
                     state.markDirty();
                 }
 
+                formulaDragState = {
+                    activeInput: activeEl,
+                    anchorCellId: anchor,
+                    startPos: injectionStart,
+                    endPos: injectionEnd,
+                };
+
                 if (!e.shiftKey) lastActiveCellId = cellId;
 
                 return;
@@ -581,6 +617,68 @@ export const renderTableUI = (
         },
         true
     );
+
+    tableScroll.addEventListener('mouseover', (e: MouseEvent) => {
+        if (!formulaDragState) return;
+
+        if (e.buttons !== 1) {
+            formulaDragState = null;
+            return;
+        }
+
+        const t = e.target as HTMLElement;
+        const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+        if (!ta || !table.contains(ta)) return;
+
+        const currentCellId = ta.getAttribute('data-cell-id');
+        if (!currentCellId) return;
+
+        const { activeInput, anchorCellId, startPos, endPos } = formulaDragState;
+
+        const match1 = anchorCellId.match(/^([A-Z]+)(\d+)$/i);
+        const match2 = currentCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match1 || !match2) return;
+
+        const c1 = lettersToColumnIndex(match1[1]);
+        const r1 = parseInt(match1[2], 10);
+        const c2 = lettersToColumnIndex(match2[1]);
+        const r2 = parseInt(match2[2], 10);
+
+        const minC = columnIndexToLetters(Math.min(c1, c2));
+        const maxC = columnIndexToLetters(Math.max(c1, c2));
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+
+        let rangeText = '';
+        if (minC === maxC && minR === maxR) {
+            rangeText = `${minC}${minR}`;
+        } else {
+            rangeText = `${minC}${minR}:${maxC}${maxR}`;
+        }
+
+        const currentVal = activeInput.value;
+        const newVal = currentVal.substring(0, startPos) + rangeText + currentVal.substring(endPos);
+        activeInput.value = newVal;
+
+        const newEndPos = startPos + rangeText.length;
+        activeInput.setSelectionRange(newEndPos, newEndPos);
+
+        formulaDragState.endPos = newEndPos;
+
+        if (activeInput === formulaBarInput && formulaBarLink) {
+            formulaBarLink.input.value = newVal;
+            formulaBarLink.adjustHeight();
+        } else if (formulaBarLink) {
+            formulaBarInput.value = newVal;
+            formulaBarLink.adjustHeight();
+        }
+
+        if (formulaBarLink) {
+            const cellRef = state.ensureCell(formulaBarLink.cellId);
+            cellRef.value = newVal;
+            state.markDirty();
+        }
+    });
 
     wrapper.addEventListener('click', (e: MouseEvent) => {
         const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
