@@ -1,63 +1,61 @@
 import { Menu } from 'obsidian';
-import { evaluateMath } from './math';
+import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
 import * as Actions from './dataActions';
+import { TableState, CellData, lettersToColumnIndex } from './tableState';
 
 let nextFocusCell: string | null = null;
 
+const ALIGN_CLASSES = [
+    'live-formula-cell-input--align-left',
+    'live-formula-cell-input--align-center',
+    'live-formula-cell-input--align-right',
+] as const;
+
 export const renderTableUI = (
     el: HTMLElement,
-    tableData: any,
+    state: TableState,
     settings: LiveFormulasSettings,
-    saveContent: (newData: any) => Promise<void>,
-    toggleHeaders?: () => Promise<void>,
-    flushSave?: () => void
+    saveStateToFile: () => void,
+    toggleHeaders?: () => Promise<void>
 ) => {
-    if (!tableData._format) tableData._format = {};
+    const rerender = () => {
+        el.empty();
+        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders);
+    };
 
-    // --- 1. DYNAMIC GRID CALCULATOR ---
-    const cellIds = Object.keys(tableData).filter(k => k !== '_format');
-    let maxRow = 1;
-    let maxColCode = 65; 
+    const engine = new MathEngine(state);
+    const cellInputs = new Map<string, { ta: HTMLTextAreaElement; td: HTMLElement; adjustHeight: () => void }>();
+    const selectedCellIds = new Set<string>();
 
-    cellIds.forEach(id => {
-        const match = id.match(/^([A-Z]+)(\d+)$/);
-        if (match) {
-            const row = parseInt(match[2], 10);
-            if (row > maxRow) maxRow = row;
-            if (match[1].charCodeAt(0) > maxColCode) maxColCode = match[1].charCodeAt(0);
-        }
-    });
+    const cols = state.getColumnLetters();
+    const rows = state.maxRow;
 
-    if (maxColCode < 66) maxColCode = 66; 
-    const cols = Array.from({length: maxColCode - 64}, (_, i) => String.fromCharCode(65 + i));
-    const rows = maxRow;
-
-    // --- 2. WRAPPER (toolbar attached after formula bar + helpers; see below) ---
-    const wrapper = el.createEl('div', { attr: { style: "position: relative; padding-right: 28px; padding-bottom: 28px; margin: 10px 0;" } });
+    const wrapper = el.createEl('div', { cls: 'live-formula-wrapper' });
     let toolbar: TableToolbar | null = null;
 
-    const container = wrapper.createEl('div', { attr: { style: "border: 1px solid var(--background-modifier-border-hover); border-radius: 6px; overflow: visible;" } });
+    const container = wrapper.createEl('div', { cls: 'live-formula-container' });
 
-    // --- FORMULA BAR ---
-    const formulaBarWrapper = container.createEl('div', { attr: { style: "display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--background-secondary); border-bottom: 1px solid var(--background-modifier-border);" } });
-    formulaBarWrapper.createEl('span', { text: 'fx', attr: { style: "font-style: italic; color: var(--text-muted); font-weight: bold; font-family: serif;" } });
+    const formulaBarWrapper = container.createEl('div', { cls: 'live-formula-formula-bar' });
+    formulaBarWrapper.createEl('span', { text: 'fx', cls: 'live-formula-formula-bar-label' });
     const formulaBarInput = formulaBarWrapper.createEl('input', {
         type: 'text',
-        attr: { style: "flex-grow: 1; border: none; background: transparent; outline: none; color: var(--text-normal); font-family: monospace; font-size: 13px;" }
+        cls: 'live-formula-formula-bar-input',
     });
 
-    const table = container.createEl('table', { attr: { style: "width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed;" } });
+    const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
+    const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
     const getDisplayStringForCell = (id: string): string => {
-        const fmt = tableData._format[id] || {};
-        const raw = tableData[id] !== undefined ? tableData[id] : "";
-        let out = raw.toString();
+        const cell = state.getCell(id);
+        const fmt = (cell?.format || {}) as CellData['format'];
+        const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+        let out = raw === undefined || raw === null ? '' : raw.toString();
         const formula = typeof raw === 'string' && raw.startsWith('=');
         let num: number | null = null;
 
-        if (formula) num = evaluateMath(raw, tableData);
+        if (formula) num = engine.evaluateFormula(raw as string);
         else if (typeof raw === 'number') num = raw;
 
         if (num !== null) {
@@ -70,9 +68,10 @@ export const renderTableUI = (
                 else decimals = undefined;
             }
 
-            const formatOptions = decimals !== undefined
-                ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
-                : {};
+            const formatOptions =
+                decimals !== undefined
+                    ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+                    : {};
 
             if (usePercent) {
                 out = `${(num * 100).toLocaleString('en-US', formatOptions)}%`;
@@ -85,9 +84,40 @@ export const renderTableUI = (
         return out;
     };
 
+    const applyFormulaCellStyle = (ta: HTMLTextAreaElement, td: HTMLElement, id: string) => {
+        const cell = state.getCell(id);
+        const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+        const formula = typeof raw === 'string' && raw.startsWith('=');
+        ta.classList.toggle('live-formula-cell-input--formula', formula);
+        td.classList.toggle('live-formula-cell--formula', formula);
+    };
+
+    const syncCellPresentation = (ta: HTMLTextAreaElement, td: HTMLElement, cellId: string) => {
+        const cell = state.getCell(cellId);
+        const fmt = (cell?.format || {}) as CellData['format'];
+        const rawData = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+        for (const c of ALIGN_CLASSES) ta.classList.remove(c);
+        ta.classList.add(`live-formula-cell-input--align-${fmt.align || 'left'}`);
+        ta.classList.toggle('live-formula-cell-input--bold', !!fmt.bold);
+        ta.classList.toggle('live-formula-cell-input--number', typeof rawData === 'number');
+        applyFormulaCellStyle(ta, td, cellId);
+    };
+
+    const refreshCellDisplay = (cid: string) => {
+        const meta = cellInputs.get(cid);
+        if (!meta) return;
+        const { ta, td, adjustHeight } = meta;
+        if (document.activeElement === ta) return;
+        ta.value = getDisplayStringForCell(cid);
+        syncCellPresentation(ta, td, cid);
+        adjustHeight();
+    };
+
     const commitCellValue = (ta: HTMLTextAreaElement, id: string, adjust: () => void): boolean => {
-        const prior = tableData[id];
+        const priorCell = state.getCell(id);
+        const prior = priorCell !== undefined ? (priorCell.formula !== undefined ? priorCell.formula : priorCell.value) : undefined;
         const newValue = ta.value.trim();
+        const fmt = { ...(priorCell?.format || {}) };
 
         let parsed: any = newValue;
         let isNumber = false;
@@ -111,22 +141,20 @@ export const renderTableUI = (
             return false;
         }
 
-        tableData[id] = parsed;
-        saveContent(tableData);
+        if (typeof parsed === 'string' && parsed.startsWith('=')) {
+            state.setCell(id, { value: parsed, formula: parsed, format: fmt });
+        } else {
+            state.setCell(id, { value: parsed, formula: undefined, format: fmt });
+        }
+        state.markDirty();
+        const { updated, cyclic } = engine.updateCellAndDependents(id);
+        if (!cyclic) {
+            for (const cid of updated) {
+                if (cid !== id) refreshCellDisplay(cid);
+            }
+        }
         adjust();
         return true;
-    };
-
-    const applyFormulaCellStyle = (ta: HTMLTextAreaElement, td: HTMLElement, id: string) => {
-        const raw = tableData[id];
-        const formula = typeof raw === 'string' && raw.startsWith('=');
-        if (formula) {
-            ta.style.color = 'var(--text-accent)';
-            td.style.backgroundColor = 'var(--background-secondary)';
-        } else {
-            ta.style.color = '';
-            td.style.backgroundColor = '';
-        }
     };
 
     let skipCellPopulateOnFocus = false;
@@ -143,9 +171,8 @@ export const renderTableUI = (
 
         link.input.value = formulaBarInput.value;
         const didSave = commitCellValue(link.input, link.cellId, link.adjustHeight);
-        applyFormulaCellStyle(link.input, link.td, link.cellId);
+        syncCellPresentation(link.input, link.td, link.cellId);
 
-        // NEW: If we saved, capture the cell the user just clicked so focus survives the rebuild
         if (didSave && movingToOtherCell) {
             const col = (rt as HTMLElement).getAttribute('data-col');
             const row = (rt as HTMLElement).getAttribute('data-row');
@@ -160,6 +187,47 @@ export const renderTableUI = (
         }
     });
 
+    const applyToolbarFormatToCell = (cellId: string, key: string, val: any) => {
+        const cell = state.ensureCell(cellId);
+        if (!cell.format) cell.format = {};
+
+        if (key === 'type') {
+            const currentType = cell.format.type;
+            if (currentType === val) {
+                cell.format.type = 'plain';
+            } else {
+                cell.format.type = val;
+            }
+        } else if (key === 'decimals') {
+            let currentDecimals = cell.format.decimals;
+            if (currentDecimals === undefined) currentDecimals = 2;
+
+            if (val === 'inc') currentDecimals++;
+            if (val === 'dec' && currentDecimals > 0) currentDecimals--;
+
+            cell.format.decimals = currentDecimals;
+        } else {
+            (cell.format as Record<string, unknown>)[key] = (cell.format as Record<string, unknown>)[key] === val ? null : val;
+        }
+
+        state.setCell(cellId, cell);
+        state.markDirty();
+
+        const meta = cellInputs.get(cellId);
+        if (!meta) return;
+        const { ta, td, adjustHeight } = meta;
+
+        if (key === 'type' || key === 'decimals') {
+            const shown = getDisplayStringForCell(cellId);
+            ta.value = shown;
+            if (formulaBarLink?.cellId === cellId) formulaBarInput.value = shown;
+            ta.style.height = 'auto';
+            ta.style.height = `${ta.scrollHeight}px`;
+        }
+        syncCellPresentation(ta, td, cellId);
+        adjustHeight();
+    };
+
     if (settings.showToolbar) {
         toolbar = new TableToolbar(wrapper, (key, val) => {
             const tb = toolbar;
@@ -167,102 +235,77 @@ export const renderTableUI = (
 
             if (key === 'toggleHeaders') {
                 if (tb.activeCellId) nextFocusCell = tb.activeCellId;
-                if (toggleHeaders) toggleHeaders();
+                if (toggleHeaders) void toggleHeaders();
                 return;
             }
 
-            const id = tb.activeCellId;
-            if (!id || !tb.activeInput) return;
-            if (!tableData._format[id]) tableData._format[id] = {};
+            const idList =
+                selectedCellIds.size > 0 ? [...selectedCellIds] : tb.activeCellId && tb.activeInput ? [tb.activeCellId] : [];
+            if (idList.length === 0) return;
 
-            if (key === 'type') {
-                const currentType = tableData._format[id].type;
-                if (currentType === val) {
-                    tableData._format[id].type = 'plain';
-                } else {
-                    tableData._format[id].type = val;
-                }
-            } else if (key === 'decimals') {
-                let currentDecimals = tableData._format[id].decimals;
-                if (currentDecimals === undefined) currentDecimals = 2;
-
-                if (val === 'inc') currentDecimals++;
-                if (val === 'dec' && currentDecimals > 0) currentDecimals--;
-
-                tableData._format[id].decimals = currentDecimals;
-            } else {
-                tableData._format[id][key] = (tableData._format[id][key] === val) ? null : val;
-            }
-
-            nextFocusCell = id;
-            void saveContent(tableData);
-            flushSave?.();
-
-            if (key === 'bold') tb.activeInput.style.fontWeight = tableData._format[id].bold ? 'bold' : 'normal';
-            if (key === 'align') tb.activeInput.style.textAlign = tableData._format[id].align || 'left';
-
-            if (key === 'type' || key === 'decimals') {
-                const ta = tb.activeInput as HTMLTextAreaElement;
-                const shown = getDisplayStringForCell(id);
-                ta.value = shown;
-                if (formulaBarLink?.cellId === id) formulaBarInput.value = shown;
-                ta.style.height = 'auto';
-                ta.style.height = `${ta.scrollHeight}px`;
-                const tdEl = ta.closest('td');
-                if (tdEl) applyFormulaCellStyle(ta, tdEl as HTMLElement, id);
+            for (const id of idList) {
+                applyToolbarFormatToCell(id, key, val);
             }
         });
         wrapper.insertBefore(toolbar.el, wrapper.firstChild);
     }
 
-    // --- 3. HEADERS ---
     if (settings.showHeaders) {
         const hr = table.createEl('tr');
-        hr.createEl('th', { attr: { style: "width: 40px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border);" } });
-        cols.forEach(c => hr.createEl('th', { text: c, attr: { style: "background: var(--background-secondary); border: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 11px; padding: 4px;" } }));
+        hr.createEl('th', { cls: 'live-formula-corner-th' });
+        cols.forEach((c) => hr.createEl('th', { text: c, cls: 'live-formula-col-head' }));
     }
 
     for (let r = 1; r <= rows; r++) {
         const tr = table.createEl('tr');
         if (settings.showHeaders) {
-            tr.createEl('td', { text: r.toString(), attr: { style: "width: 40px; text-align: center; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 11px;" } });
+            tr.createEl('td', { text: r.toString(), cls: 'live-formula-row-head' });
         }
 
         for (const c of cols) {
             const cellId = `${c}${r}`;
-            const cellFormat = tableData._format[cellId] || {};
-            const rawData = tableData[cellId] !== undefined ? tableData[cellId] : "";
+            const cell = state.getCell(cellId);
+            const cellFormat = (cell?.format || {}) as CellData['format'];
+            const rawData = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
             const displayValue = getDisplayStringForCell(cellId);
-            const isFormula = typeof rawData === 'string' && rawData.startsWith('=');
 
-            const td = tr.createEl('td', { attr: { style: "border: 1px solid var(--background-modifier-border); padding: 0; min-width: 120px;" } });
+            const td = tr.createEl('td', { cls: 'live-formula-cell' });
             const input = td.createEl('textarea', {
+                cls: 'live-formula-cell-input',
                 attr: {
-                    'data-col': c, 'data-row': r.toString(), rows: "1", spellcheck: "true",
-                    style: `width: 100%; border: none; background: transparent; padding: 8px 12px; outline: none; text-align: ${cellFormat.align || 'left'}; font-weight: ${cellFormat.bold ? 'bold' : 'normal'}; font-family: ${typeof rawData === 'number' ? 'monospace' : 'inherit'}; resize: none; overflow: hidden; word-wrap: break-word; white-space: pre-wrap; display: block; line-height: 1.4;`
-                }
+                    'data-col': c,
+                    'data-row': r.toString(),
+                    'data-cell-id': cellId,
+                    rows: '1',
+                    spellcheck: 'true',
+                },
             }) as HTMLTextAreaElement;
 
             input.value = displayValue;
+            syncCellPresentation(input, td, cellId);
 
             const adjustHeight = () => {
                 input.style.height = 'auto';
                 input.style.height = `${input.scrollHeight}px`;
             };
-            setTimeout(adjustHeight, 10);
+            requestAnimationFrame(() => adjustHeight());
 
-            if (isFormula) { input.style.color = 'var(--text-accent)'; td.style.backgroundColor = 'var(--background-secondary)'; }
+            cellInputs.set(cellId, { ta: input, td, adjustHeight });
 
-            // --- FOCUS RECOVERY ---
             if (nextFocusCell === cellId) {
-                setTimeout(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 20);
-                nextFocusCell = null; 
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        input.focus();
+                        input.setSelectionRange(input.value.length, input.value.length);
+                    });
+                });
+                nextFocusCell = null;
             }
 
             input.addEventListener('focus', () => {
                 formulaBarLink = { input, cellId, adjustHeight, td };
 
-                let editValue = rawData.toString();
+                let editValue = rawData === undefined || rawData === null ? '' : rawData.toString();
                 if (typeof rawData === 'number') {
                     let dec = cellFormat.decimals;
                     if (dec === undefined && cellFormat.type === 'currency') dec = 2;
@@ -277,12 +320,14 @@ export const renderTableUI = (
                     formulaBarInput.value = editValue;
                 }
 
-                input.style.background = 'var(--background-modifier-active-hover)';
                 toolbar?.show(input, cellId, td, r);
                 adjustHeight();
 
                 formulaBarInput.oninput = (e) => {
                     input.value = (e.target as HTMLInputElement).value;
+                    const cellRef = state.ensureCell(cellId);
+                    cellRef.value = input.value;
+                    state.markDirty();
                     adjustHeight();
                 };
 
@@ -290,6 +335,9 @@ export const renderTableUI = (
                     if (e.key === 'Enter') {
                         e.preventDefault();
                         input.value = formulaBarInput.value;
+                        const cellRef = state.ensureCell(cellId);
+                        cellRef.value = input.value;
+                        state.markDirty();
                         adjustHeight();
                         skipCellPopulateOnFocus = true;
                         input.focus();
@@ -300,6 +348,9 @@ export const renderTableUI = (
 
             input.addEventListener('input', () => {
                 adjustHeight();
+                const cellRef = state.ensureCell(cellId);
+                cellRef.value = input.value;
+                state.markDirty();
                 if (formulaBarLink?.input === input) {
                     formulaBarInput.value = input.value;
                 }
@@ -308,19 +359,15 @@ export const renderTableUI = (
             input.addEventListener('blur', (ev) => {
                 const rt = ev.relatedTarget as Node | null;
                 if (rt === formulaBarInput || (rt && formulaBarWrapper.contains(rt))) {
-                    input.style.background = 'transparent';
                     toolbar?.hide();
                     return;
                 }
 
                 toolbar?.hide();
-                input.style.background = 'transparent';
 
-                // Track if a save happened
                 const didSave = commitCellValue(input, cellId, adjustHeight);
-                applyFormulaCellStyle(input, td, cellId);
+                syncCellPresentation(input, td, cellId);
 
-                // NEW: If we saved, capture the cell the user just clicked
                 if (didSave && rt instanceof HTMLTextAreaElement && table.contains(rt)) {
                     const col = rt.getAttribute('data-col');
                     const row = rt.getAttribute('data-row');
@@ -339,35 +386,51 @@ export const renderTableUI = (
                 }, 50);
             });
 
-            // --- KEYBOARD NAVIGATION (Now with Arrow Keys) ---
             input.addEventListener('keydown', (e) => {
-                let moveCol = c, moveRow = r;
+                let moveCol = c,
+                    moveRow = r;
 
-                if (e.key === 'Enter') { e.preventDefault(); moveRow = e.shiftKey ? r - 1 : r + 1; }
-                else if (e.key === 'Tab') { 
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    moveRow = e.shiftKey ? r - 1 : r + 1;
+                } else if (e.key === 'Tab') {
                     const idx = cols.indexOf(c);
-                    if (!e.shiftKey) { if (idx < cols.length - 1) moveCol = cols[idx + 1]; else if (r < rows) { moveCol = cols[0]; moveRow = r + 1; } }
-                    else { if (idx > 0) moveCol = cols[idx - 1]; else if (r > 1) { moveCol = cols[cols.length - 1]; moveRow = r - 1; } }
-                }
-                // ARROW KEYS: Only move if the cursor is at the very start or end of the text
-                else if (e.key === 'ArrowDown') moveRow = r + 1;
+                    if (!e.shiftKey) {
+                        if (idx < cols.length - 1) moveCol = cols[idx + 1];
+                        else if (r < rows) {
+                            moveCol = cols[0];
+                            moveRow = r + 1;
+                        }
+                    } else {
+                        if (idx > 0) moveCol = cols[idx - 1];
+                        else if (r > 1) {
+                            moveCol = cols[cols.length - 1];
+                            moveRow = r - 1;
+                        }
+                    }
+                } else if (e.key === 'ArrowDown') moveRow = r + 1;
                 else if (e.key === 'ArrowUp') moveRow = r - 1;
                 else if (e.key === 'ArrowRight' && input.selectionEnd === input.value.length) {
-                    const idx = cols.indexOf(c); if (idx < cols.length - 1) moveCol = cols[idx + 1];
+                    const idx = cols.indexOf(c);
+                    if (idx < cols.length - 1) moveCol = cols[idx + 1];
+                } else if (e.key === 'ArrowLeft' && input.selectionStart === 0) {
+                    const idx = cols.indexOf(c);
+                    if (idx > 0) moveCol = cols[idx - 1];
+                } else {
+                    return;
                 }
-                else if (e.key === 'ArrowLeft' && input.selectionStart === 0) {
-                    const idx = cols.indexOf(c); if (idx > 0) moveCol = cols[idx - 1];
-                } else { return; }
 
                 if (moveCol !== c || moveRow !== r) {
                     e.preventDefault();
                     nextFocusCell = `${moveCol}${moveRow}`;
-                    const target = table.querySelector(`textarea[data-col="${moveCol}"][data-row="${moveRow}"]`) as HTMLTextAreaElement;
-                    if (target) target.focus(); else input.blur();
+                    const target = table.querySelector(
+                        `textarea[data-col="${CSS.escape(moveCol)}"][data-row="${moveRow}"]`
+                    ) as HTMLTextAreaElement;
+                    if (target) target.focus();
+                    else input.blur();
                 }
             });
 
-            // --- CONTEXT MENU ---
             input.addEventListener('contextmenu', (e) => {
                 if (e.shiftKey) {
                     e.stopPropagation();
@@ -375,30 +438,113 @@ export const renderTableUI = (
                 }
 
                 e.preventDefault();
+                const colIdx = lettersToColumnIndex(c);
                 const menu = new Menu();
-                menu.addItem(i => i.setTitle('Insert Row Above').setIcon('arrow-up').onClick(() => Actions.insertRow(tableData, r, maxColCode, saveContent)));
-                menu.addItem(i => i.setTitle('Insert Row Below').setIcon('arrow-down').onClick(() => Actions.insertRow(tableData, r + 1, maxColCode, saveContent)));
-                menu.addItem(i => i.setTitle('Delete Row').setIcon('trash').onClick(() => Actions.deleteRow(tableData, r, saveContent)));
-                menu.addSeparator(); 
-                menu.addItem(i => i.setTitle('Insert Column Left').setIcon('arrow-left').onClick(() => Actions.insertCol(tableData, c.charCodeAt(0), rows, maxColCode, saveContent)));
-                menu.addItem(i => i.setTitle('Insert Column Right').setIcon('arrow-right').onClick(() => Actions.insertCol(tableData, c.charCodeAt(0) + 1, rows, maxColCode, saveContent)));
-                menu.addItem(i => i.setTitle('Delete Column').setIcon('trash').onClick(() => Actions.deleteCol(tableData, c.charCodeAt(0), saveContent)));
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Above').setIcon('arrow-up').onClick(() => {
+                        Actions.insertRow(state, r);
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Below').setIcon('arrow-down').onClick(() => {
+                        Actions.insertRow(state, r + 1);
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Row').setIcon('trash').onClick(() => {
+                        Actions.deleteRow(state, r);
+                        rerender();
+                    })
+                );
+                menu.addSeparator();
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Left').setIcon('arrow-left').onClick(() => {
+                        Actions.insertCol(state, colIdx, rows);
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Right').setIcon('arrow-right').onClick(() => {
+                        Actions.insertCol(state, colIdx + 1, rows);
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Column').setIcon('trash').onClick(() => {
+                        Actions.deleteCol(state, colIdx);
+                        rerender();
+                    })
+                );
                 menu.showAtMouseEvent(e);
             });
         }
     }
 
-    // --- HOVER BUTTONS ---
+    tableScroll.addEventListener(
+        'mousedown',
+        (e: MouseEvent) => {
+            const t = e.target as HTMLElement;
+            const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!ta || !table.contains(ta)) return;
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+            }
+        },
+        true
+    );
+
+    wrapper.addEventListener('click', (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        const cellInput = target.closest('textarea[data-cell-id]') as HTMLTextAreaElement;
+        if (!cellInput) return;
+
+        const cellId = cellInput.getAttribute('data-cell-id');
+        if (!cellId) return;
+
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+
+            if (selectedCellIds.has(cellId)) {
+                selectedCellIds.delete(cellId);
+                cellInput.classList.remove('is-selected');
+            } else {
+                selectedCellIds.add(cellId);
+                cellInput.classList.add('is-selected');
+                cellInput.blur();
+            }
+        } else {
+            selectedCellIds.clear();
+            wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
+        }
+    });
+
+    wrapper.addEventListener('focusout', (ev) => {
+        const rt = ev.relatedTarget as Node | null;
+        if (rt && table.contains(rt)) return;
+        saveStateToFile();
+    });
+
     if (settings.enableHoverButtons) {
-        const btnStyle = "position: absolute; display: flex; align-items: center; justify-content: center; background: var(--interactive-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; color: var(--text-muted); opacity: 0; transition: opacity 0.2s ease, background 0.2s ease; font-size: 16px; font-weight: bold;";
+        const addColBtn = wrapper.createEl('button', {
+            text: '+',
+            cls: 'live-formula-hover-btn live-formula-hover-btn-add-col',
+            attr: { type: 'button', 'aria-label': 'Add column' },
+        });
+        const addRowBtn = wrapper.createEl('button', {
+            text: '+',
+            cls: 'live-formula-hover-btn live-formula-hover-btn-add-row',
+            attr: { type: 'button', 'aria-label': 'Add row' },
+        });
 
-        const addColBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} right: 0; top: 0; bottom: 28px; width: 24px;` } });
-        const addRowBtn = wrapper.createEl('button', { text: "+", attr: { style: `${btnStyle} bottom: 0; left: 0; right: 28px; height: 24px;` } });
-
-        wrapper.addEventListener('mouseenter', () => { addColBtn.style.opacity = '1'; addRowBtn.style.opacity = '1'; });
-        wrapper.addEventListener('mouseleave', () => { addColBtn.style.opacity = '0'; addRowBtn.style.opacity = '0'; });
-
-        addColBtn.addEventListener('click', () => Actions.insertCol(tableData, maxColCode + 1, rows, maxColCode, saveContent));
-        addRowBtn.addEventListener('click', () => Actions.insertRow(tableData, rows + 1, maxColCode, saveContent));
+        addColBtn.addEventListener('click', () => {
+            Actions.insertCol(state, state.maxCol + 1, rows);
+            rerender();
+        });
+        addRowBtn.addEventListener('click', () => {
+            Actions.insertRow(state, rows + 1);
+            rerender();
+        });
     }
 };

@@ -18,5 +18,8 @@
     "obsidian": "latest",
     "tslib": "^2.8.1",
     "typescript": "5.2.2"
+  },
+  "dependencies": {
+    "expr-eval": "^2.0.2"
   }
 }

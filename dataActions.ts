@@ -1,60 +1,91 @@
-export const insertRow = (tableData: any, targetRow: number, maxColCode: number, saveContent: (newData: any) => Promise<void>) => {
-    const newData: any = { _format: tableData._format };
-    const cols = Array.from({length: maxColCode - 64}, (_, i) => String.fromCharCode(65 + i));
-    
-    for (const [key, value] of Object.entries(tableData)) {
-        if (key === '_format') continue;
-        const match = key.match(/^([A-Z]+)(\d+)$/);
+import { TableState, CellData, columnIndexToLetters, lettersToColumnIndex } from './tableState';
+
+function cloneCell(c: CellData): CellData {
+    return {
+        value: c.value,
+        formula: c.formula,
+        format: { ...(c.format || {}) },
+    };
+}
+
+export const insertRow = (state: TableState, targetRow: number) => {
+    const cols = state.getColumnLetters();
+    const next = new Map<string, CellData>();
+
+    for (const [key, cell] of state.cells) {
+        const match = key.match(/^([A-Z]+)(\d+)$/i);
         if (!match) continue;
         const col = match[1];
         const row = parseInt(match[2], 10);
-        if (row < targetRow) newData[key] = value;
-        else newData[`${col}${row + 1}`] = value;
+        if (row < targetRow) next.set(key, cloneCell(cell));
+        else next.set(`${col}${row + 1}`, cloneCell(cell));
     }
-    cols.forEach(c => newData[`${c}${targetRow}`] = "");
-    saveContent(newData);
+    for (const c of cols) {
+        next.set(`${c}${targetRow}`, { value: '', format: {} });
+    }
+
+    state.cells = next;
+    state.recalculateExtents();
+    state.markDirty();
 };
 
-export const deleteRow = (tableData: any, targetRow: number, saveContent: (newData: any) => Promise<void>) => {
-    const newData: any = { _format: tableData._format };
-    for (const [key, value] of Object.entries(tableData)) {
-        if (key === '_format') continue;
-        const match = key.match(/^([A-Z]+)(\d+)$/);
+export const deleteRow = (state: TableState, targetRow: number) => {
+    const next = new Map<string, CellData>();
+
+    for (const [key, cell] of state.cells) {
+        const match = key.match(/^([A-Z]+)(\d+)$/i);
         if (!match) continue;
         const col = match[1];
         const row = parseInt(match[2], 10);
-        if (row < targetRow) newData[key] = value;
-        else if (row > targetRow) newData[`${col}${row - 1}`] = value;
+        if (row < targetRow) next.set(key, cloneCell(cell));
+        else if (row > targetRow) next.set(`${col}${row - 1}`, cloneCell(cell));
     }
-    saveContent(newData);
+
+    state.cells = next;
+    state.recalculateExtents();
+    state.markDirty();
 };
 
-export const insertCol = (tableData: any, targetColCode: number, maxRow: number, maxColCode: number, saveContent: (newData: any) => Promise<void>) => {
-    if (maxColCode >= 90) return; 
-    const newData: any = { _format: tableData._format };
-    for (const [key, value] of Object.entries(tableData)) {
-        if (key === '_format') continue;
-        const match = key.match(/^([A-Z]+)(\d+)$/);
+/**
+ * Insert a new empty column before the given 1-based column index (1 = before A).
+ * Use insertBeforeIndex = state.maxCol + 1 to append a column at the end.
+ */
+export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: number) => {
+    const next = new Map<string, CellData>();
+
+    for (const [key, cell] of state.cells) {
+        const match = key.match(/^([A-Z]+)(\d+)$/i);
         if (!match) continue;
-        const colCode = match[1].charCodeAt(0);
+        const colLetters = match[1];
         const row = parseInt(match[2], 10);
-        if (colCode < targetColCode) newData[key] = value;
-        else newData[`${String.fromCharCode(colCode + 1)}${row}`] = value;
+        const colIdx = lettersToColumnIndex(colLetters);
+        if (colIdx < insertBeforeIndex) next.set(key, cloneCell(cell));
+        else next.set(`${columnIndexToLetters(colIdx + 1)}${row}`, cloneCell(cell));
     }
-    for (let r = 1; r <= maxRow; r++) newData[`${String.fromCharCode(targetColCode)}${r}`] = "";
-    saveContent(newData);
+    for (let r = 1; r <= maxRow; r++) {
+        next.set(`${columnIndexToLetters(insertBeforeIndex)}${r}`, { value: '', format: {} });
+    }
+
+    state.cells = next;
+    state.recalculateExtents();
+    state.markDirty();
 };
 
-export const deleteCol = (tableData: any, targetColCode: number, saveContent: (newData: any) => Promise<void>) => {
-    const newData: any = { _format: tableData._format };
-    for (const [key, value] of Object.entries(tableData)) {
-        if (key === '_format') continue;
-        const match = key.match(/^([A-Z]+)(\d+)$/);
+/** Delete the column at 1-based Excel index (1 = A). */
+export const deleteCol = (state: TableState, columnIndex: number) => {
+    const next = new Map<string, CellData>();
+
+    for (const [key, cell] of state.cells) {
+        const match = key.match(/^([A-Z]+)(\d+)$/i);
         if (!match) continue;
-        const colCode = match[1].charCodeAt(0);
+        const colLetters = match[1];
         const row = parseInt(match[2], 10);
-        if (colCode < targetColCode) newData[key] = value;
-        else if (colCode > targetColCode) newData[`${String.fromCharCode(colCode - 1)}${row}`] = value;
+        const colIdx = lettersToColumnIndex(colLetters);
+        if (colIdx < columnIndex) next.set(key, cloneCell(cell));
+        else if (colIdx > columnIndex) next.set(`${columnIndexToLetters(colIdx - 1)}${row}`, cloneCell(cell));
     }
-    saveContent(newData);
+
+    state.cells = next;
+    state.recalculateExtents();
+    state.markDirty();
 };

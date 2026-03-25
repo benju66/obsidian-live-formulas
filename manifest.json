@@ -4,6 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "1.5.0",
 	"description": "Excel-style inline formulas and live calculations for Markdown tables.",
+	"css": "styles.css",
 	"author": "Ben Urness",
 	"authorUrl": "",
 	"isDesktopOnly": false
