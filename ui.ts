@@ -67,6 +67,27 @@ export const renderTableUI = (
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
+    const clearFormulaHighlights = () => {
+        wrapper.querySelectorAll('.is-formula-reference').forEach((el) => el.classList.remove('is-formula-reference'));
+    };
+
+    const applyFormulaHighlight = (c1: number, c2: number, r1: number, r2: number) => {
+        clearFormulaHighlights();
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+
+        for (let c = minC; c <= maxC; c++) {
+            const colStr = columnIndexToLetters(c);
+            for (let r = minR; r <= maxR; r++) {
+                const id = `${colStr}${r}`;
+                const ta = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+                if (ta) ta.classList.add('is-formula-reference');
+            }
+        }
+    };
+
     const getDisplayStringForCell = (id: string): string => {
         const cell = state.getCell(id);
         const fmt = (cell?.format || {}) as CellData['format'];
@@ -362,6 +383,7 @@ export const renderTableUI = (
 
                 formulaBarInput.onkeydown = (e) => {
                     if (e.key === 'Enter') {
+                        clearFormulaHighlights();
                         e.preventDefault();
                         input.value = formulaBarInput.value;
                         const cellRef = state.ensureCell(cellId);
@@ -396,6 +418,8 @@ export const renderTableUI = (
                     return;
                 }
 
+                clearFormulaHighlights();
+
                 input.classList.remove('is-linked-focus');
                 td.classList.remove('is-linked-focus');
                 toolbar?.setActiveCell(null, null);
@@ -426,6 +450,7 @@ export const renderTableUI = (
                     moveRow = r;
 
                 if (e.key === 'Enter') {
+                    clearFormulaHighlights();
                     e.preventDefault();
                     moveRow = e.shiftKey ? r - 1 : r + 1;
                 } else if (e.key === 'Tab') {
@@ -596,6 +621,13 @@ export const renderTableUI = (
 
                 if (!e.shiftKey) lastActiveCellId = cellId;
 
+                const idMatch = cellId.match(/^([A-Z]+)(\d+)$/i);
+                if (idMatch) {
+                    const hc1 = lettersToColumnIndex(idMatch[1]);
+                    const hr1 = parseInt(idMatch[2], 10);
+                    applyFormulaHighlight(hc1, hc1, hr1, hr1);
+                }
+
                 return;
             }
 
@@ -666,6 +698,8 @@ export const renderTableUI = (
             cellRef.value = newVal;
             state.markDirty();
         }
+
+        applyFormulaHighlight(c1, c2, r1, r2);
     });
 
     wrapper.addEventListener('click', (e: MouseEvent) => {
