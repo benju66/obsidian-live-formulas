@@ -36,6 +36,7 @@ export const renderTableUI = (
 ) => {
     const rerender = () => {
         formulaDragState = null;
+        justInjectedFormula = false;
         state.clearDirty();
         el.empty();
         renderTableUI(el, state, settings, saveStateToFile, toggleHeaders);
@@ -45,6 +46,8 @@ export const renderTableUI = (
     const cellInputs = new Map<string, { ta: HTMLTextAreaElement; td: HTMLElement; adjustHeight: () => void }>();
     const selectedCellIds = new Set<string>();
     let lastActiveCellId: string | null = null;
+    /** Suppresses bulk-selection click handling after a formula point-mode injection (see module `formulaDragState`). */
+    let justInjectedFormula = false;
 
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
@@ -531,13 +534,24 @@ export const renderTableUI = (
             if (!cellId) return;
 
             const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
-            const isEditingFormula =
-                !!activeEl &&
-                (activeEl === formulaBarInput ||
-                    (!!formulaBarLink && activeEl === formulaBarLink.input && activeEl.value.startsWith('=')));
+            const isFormulaBarFocused = activeEl === formulaBarInput;
+            const isCellInputFocused = !!(formulaBarLink && activeEl === formulaBarLink.input);
+            const isFormula = !!(activeEl && activeEl.value.startsWith('='));
 
-            if (isEditingFormula) {
+            let isPointMode = false;
+            if ((isFormulaBarFocused || isCellInputFocused) && isFormula && activeEl) {
+                const s = activeEl.selectionStart ?? activeEl.value.length;
+                const prevChar = activeEl.value.charAt(s - 1);
+
+                const afterOperator = ['=', '(', ',', '+', '-', '*', '/'].includes(prevChar);
+                if (afterOperator || e.ctrlKey || e.metaKey) {
+                    isPointMode = true;
+                }
+            }
+
+            if (isPointMode && activeEl) {
                 e.preventDefault();
+                justInjectedFormula = true;
 
                 const s = activeEl.selectionStart ?? activeEl.value.length;
                 const end = activeEl.selectionEnd ?? activeEl.value.length;
@@ -551,38 +565,12 @@ export const renderTableUI = (
                     }
                 }
 
-                let textToInsert = cellId;
-                let anchor = cellId;
-
-                if (e.shiftKey) {
-                    const anchorId = formulaDragState?.anchorCellId ?? lastActiveCellId;
-                    if (anchorId) {
-                        anchor = anchorId;
-                        const match1 = anchor.match(/^([A-Z]+)(\d+)$/i);
-                        const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
-                        if (match1 && match2) {
-                            const c1 = lettersToColumnIndex(match1[1]);
-                            const r1 = parseInt(match1[2], 10);
-                            const c2 = lettersToColumnIndex(match2[1]);
-                            const r2 = parseInt(match2[2], 10);
-
-                            const minC = columnIndexToLetters(Math.min(c1, c2));
-                            const maxC = columnIndexToLetters(Math.max(c1, c2));
-                            const minR = Math.min(r1, r2);
-                            const maxR = Math.max(r1, r2);
-
-                            textToInsert = `${minC}${minR}:${maxC}${maxR}`;
-                        }
-                    }
-                }
-
-                const insertedString = prefix + textToInsert;
+                const insertedString = prefix + cellId;
                 const newVal = currentVal.substring(0, s) + insertedString + currentVal.substring(end);
                 activeEl.value = newVal;
 
                 const injectionStart = s + prefix.length;
                 const injectionEnd = s + insertedString.length;
-
                 activeEl.setSelectionRange(injectionEnd, injectionEnd);
 
                 if (activeEl === formulaBarInput && formulaBarLink) {
@@ -601,7 +589,7 @@ export const renderTableUI = (
 
                 formulaDragState = {
                     activeInput: activeEl,
-                    anchorCellId: anchor,
+                    anchorCellId: cellId,
                     startPos: injectionStart,
                     endPos: injectionEnd,
                 };
@@ -681,13 +669,10 @@ export const renderTableUI = (
     });
 
     wrapper.addEventListener('click', (e: MouseEvent) => {
-        const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
-        const isEditingFormula =
-            !!activeEl &&
-            (activeEl === formulaBarInput ||
-                (!!formulaBarLink && activeEl === formulaBarLink.input && activeEl.value.startsWith('=')));
-
-        if (isEditingFormula) return;
+        if (justInjectedFormula) {
+            justInjectedFormula = false;
+            return;
+        }
 
         const target = e.target as HTMLElement;
         const cellInput = target.closest('textarea[data-cell-id]') as HTMLTextAreaElement;
