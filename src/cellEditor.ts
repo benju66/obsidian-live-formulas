@@ -58,6 +58,14 @@ export class CellEditor {
         });
     }
 
+    public injectReference(cellId: string) {
+        const start = this.el.selectionStart ?? this.el.value.length;
+        const end = this.el.selectionEnd ?? this.el.value.length;
+        this.el.value = this.el.value.substring(0, start) + cellId + this.el.value.substring(end);
+        this.el.setSelectionRange(start + cellId.length, start + cellId.length);
+        this.el.focus();
+    }
+
     public open(cellId: string, td: HTMLElement) {
         this.activeCellId = cellId;
         this.activeTd = td;

@@ -214,7 +214,8 @@ export const renderTableUI = (
             const activeId = selectionManager.getActiveCellId();
             if (!activeId) return;
 
-            const newValue = formulaBarInput.value.trim();
+            let newValue = formulaBarInput.value.trim();
+            newValue = balanceFormulaParens(newValue);
             const cell = state.ensureCell(activeId);
 
             let parsed: string | number = newValue;
@@ -273,7 +274,10 @@ export const renderTableUI = (
             }
             state.markDirty();
             saveStateToFile();
-            wrapper.focus();
+            setTimeout(() => {
+                selectionManager.renderSelection();
+                wrapper.focus();
+            }, 10);
         });
         tb.el.style.display = settings.toolbarVisible !== false ? 'flex' : 'none';
         container.insertBefore(tb.el, tableScroll);
@@ -287,6 +291,30 @@ export const renderTableUI = (
             const tbEl = container.querySelector('.live-formula-toolbar-ribbon') as HTMLElement;
             if (tbEl) tbEl.style.display = settings.toolbarVisible ? 'flex' : 'none';
             void persistPluginSettings?.();
+        });
+    }
+
+    if (settings.enableHoverButtons) {
+        const addColBtn = wrapper.createEl('button', {
+            text: '+',
+            cls: 'live-formula-hover-btn live-formula-hover-btn-add-col',
+            attr: { type: 'button', 'aria-label': 'Add column' },
+        });
+        const addRowBtn = wrapper.createEl('button', {
+            text: '+',
+            cls: 'live-formula-hover-btn live-formula-hover-btn-add-row',
+            attr: { type: 'button', 'aria-label': 'Add row' },
+        });
+
+        addColBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        addColBtn.addEventListener('click', () => {
+            Actions.insertCol(state, state.maxCol + 1, rows);
+            saveStateToFile();
+        });
+        addRowBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        addRowBtn.addEventListener('click', () => {
+            Actions.insertRow(state, rows + 1);
+            saveStateToFile();
         });
     }
 

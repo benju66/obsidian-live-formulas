@@ -41,6 +41,29 @@ export class SelectionManager {
         const target = e.target as HTMLElement;
         const td = target.closest('.live-formula-cell') as HTMLElement;
 
+        if (td && this.editor.el.style.display === 'block') {
+            const cellId = td.getAttribute('data-cell-id');
+            if (cellId) {
+                e.preventDefault();
+                this.editor.injectReference(cellId);
+            }
+            return;
+        }
+
+        const activeEl = document.activeElement as HTMLInputElement | null;
+        if (td && activeEl && activeEl.classList.contains('live-formula-formula-bar-input')) {
+            const cellId = td.getAttribute('data-cell-id');
+            if (cellId) {
+                e.preventDefault();
+                const start = activeEl.selectionStart ?? activeEl.value.length;
+                const end = activeEl.selectionEnd ?? activeEl.value.length;
+                activeEl.value = activeEl.value.substring(0, start) + cellId + activeEl.value.substring(end);
+                activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
+                activeEl.focus();
+            }
+            return;
+        }
+
         if (!td) {
             if (
                 !target.closest('.live-formula-floating-editor') &&
@@ -54,7 +77,6 @@ export class SelectionManager {
 
         const cellId = td.getAttribute('data-cell-id');
         if (!cellId) return;
-        if (this.editor.el.style.display === 'block' && this.activeCellId === cellId) return;
 
         this.isDragging = true;
 
@@ -140,7 +162,7 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
     }
 
-    private renderSelection() {
+    public renderSelection() {
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
 
         for (const id of this.selectedIds) {
@@ -182,6 +204,25 @@ export class SelectionManager {
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
+        if (cmdOrCtrl && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) return;
+
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            this.moveActiveCell(e.shiftKey ? 'Left' : 'Right');
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            this.moveActiveCell(e.shiftKey ? 'Up' : 'Down');
+            return;
+        }
+        if (e.key === 'F2') {
+            e.preventDefault();
+            const td = this.wrapper.querySelector(`td[data-cell-id="${this.activeCellId}"]`) as HTMLElement;
+            if (td) this.editor.open(this.activeCellId, td);
+            return;
+        }
+
         if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
             for (const id of this.selectedIds) {
@@ -214,11 +255,6 @@ export class SelectionManager {
             } else if (e.key === 'ArrowRight') {
                 c = Math.min(this.state.maxCol, c + 1);
                 moved = true;
-            } else if (e.key === 'Enter') {
-                e.preventDefault();
-                const td = this.wrapper.querySelector(`td[data-cell-id="${this.activeCellId}"]`) as HTMLElement;
-                if (td) this.editor.open(this.activeCellId, td);
-                return;
             }
 
             if (moved) {
