@@ -5,6 +5,7 @@ import {
     Menu,
     Editor,
     MarkdownView,
+    Notice,
 } from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
@@ -14,7 +15,8 @@ class LiveTableSaveLifecycle extends MarkdownRenderChild {
     constructor(
         containerEl: HTMLElement,
         private readonly saveStateToFile: () => void,
-        private readonly unregister: () => void
+        private readonly unregister: () => void,
+        private readonly destroyUI: () => void
     ) {
         super(containerEl);
     }
@@ -22,6 +24,7 @@ class LiveTableSaveLifecycle extends MarkdownRenderChild {
     onunload(): void {
         this.saveStateToFile();
         this.unregister();
+        this.destroyUI();
     }
 }
 
@@ -89,6 +92,9 @@ export default class LiveFormulasPlugin extends Plugin {
                             console.warn(
                                 'Live Formulas: Document shifted during async write. Aborting save to prevent corruption.'
                             );
+                            new Notice(
+                                'Live Formulas: Document shifted. Save aborted to prevent data loss. Please re-trigger save.'
+                            );
                             state.markDirty();
                             return data;
                         }
@@ -100,8 +106,7 @@ export default class LiveFormulasPlugin extends Plugin {
                 const unregister = () => {
                     this.liveTableBlocks.delete(saveStateToFile);
                 };
-                this.liveTableBlocks.add(saveStateToFile);
-                ctx.addChild(new LiveTableSaveLifecycle(el, saveStateToFile, unregister));
+                const destroyRef = { current: () => {} };
 
                 const toggleHeaders = async () => {
                     saveStateToFile();
@@ -109,15 +114,14 @@ export default class LiveFormulasPlugin extends Plugin {
                     await this.saveSettings();
 
                     state.clearDirty();
+                    destroyRef.current();
                     el.empty();
-                    renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () =>
-                        this.saveSettings()
-                    );
+                    renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () => this.saveSettings(), destroyRef);
                 };
 
-                renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () =>
-                    this.saveSettings()
-                );
+                renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () => this.saveSettings(), destroyRef);
+                this.liveTableBlocks.add(saveStateToFile);
+                ctx.addChild(new LiveTableSaveLifecycle(el, saveStateToFile, unregister, () => destroyRef.current()));
             }
         );
     }

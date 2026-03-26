@@ -39,6 +39,11 @@
     font-size: 13px;
 }
 
+.live-formula-cell-input--error {
+    color: var(--text-error);
+    font-weight: bold;
+}
+
 .live-formula-formula-bar-ribbon-toggle {
     flex-shrink: 0;
     line-height: 1;

@@ -227,10 +227,11 @@ export class MathEngine {
             this.evalVisiting.add(id);
             try {
                 const expr = formulaToExpr(cell.formula);
-                const v = this.parser.parse(expr).evaluate({});
+                const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
+                if (typeof v === 'number' && !Number.isFinite(v)) return '#NUM!';
                 return v;
             } catch {
-                return 0;
+                return '#VALUE!';
             } finally {
                 this.evalVisiting.delete(id);
             }
@@ -245,17 +246,17 @@ export class MathEngine {
         return formulaToExpr(formula);
     }
 
-    evaluateFormula(formula: string): number | string | boolean {
+    evaluateFormula(formula: string): number | string {
         const prev = this.batchNumericCache;
         this.batchNumericCache = null;
         try {
             const expr = formulaToExpr(formula);
             const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
-            if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-            if (typeof v === 'string' || typeof v === 'boolean') return v;
-            return 0;
+            if (typeof v === 'number' && !Number.isFinite(v)) return '#NUM!';
+            if (typeof v === 'boolean') return String(v);
+            return v as number | string;
         } catch {
-            return 0;
+            return '#VALUE!';
         } finally {
             this.batchNumericCache = prev;
         }

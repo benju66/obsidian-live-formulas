@@ -5,28 +5,6 @@ import { LiveFormulasSettings } from './settings';
 import * as Actions from './dataActions';
 import { TableState, CellData, lettersToColumnIndex, columnIndexToLetters } from './tableState';
 
-let nextFocusCell: string | null = null;
-
-/** Phase 4: drag-to-select range in formulas; module scope so window mouseup / mouseover share one ref. */
-let formulaDragState: {
-    activeInput: HTMLInputElement | HTMLTextAreaElement;
-    anchorCellId: string;
-    startPos: number;
-    endPos: number;
-} | null = null;
-
-let fillDragState: { sourceCellId: string; currentCellId: string; applyFill: () => void } | null = null;
-
-if (typeof window !== 'undefined') {
-    window.addEventListener('mouseup', () => {
-        if (formulaDragState) formulaDragState = null;
-        if (fillDragState) {
-            fillDragState.applyFill();
-            fillDragState = null;
-        }
-    });
-}
-
 const ALIGN_CLASSES = [
     'live-formula-cell-input--align-left',
     'live-formula-cell-input--align-center',
@@ -50,25 +28,50 @@ export const renderTableUI = (
     settings: LiveFormulasSettings,
     saveStateToFile: () => void,
     toggleHeaders?: () => Promise<void>,
-    persistPluginSettings?: () => Promise<void>
+    persistPluginSettings?: () => Promise<void>,
+    destroyRef?: { current: () => void }
 ) => {
+    let nextFocusCell: string | null = null;
+    let formulaDragState: {
+        activeInput: HTMLInputElement | HTMLTextAreaElement;
+        anchorCellId: string;
+        startPos: number;
+        endPos: number;
+    } | null = null;
+    let fillDragState: { sourceCellId: string; currentCellId: string; applyFill: () => void } | null = null;
+
+    const handleMouseUp = () => {
+        if (formulaDragState) formulaDragState = null;
+        if (fillDragState) {
+            fillDragState.applyFill();
+            fillDragState = null;
+        }
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+
+    const destroy = () => {
+        window.removeEventListener('mouseup', handleMouseUp);
+    };
+
     let isRerendering = false;
+    /** Suppresses bulk-selection click handling after a formula point-mode injection (see module `formulaDragState`). */
+    let justInjectedFormula = false;
 
     const rerender = () => {
         isRerendering = true;
+        destroy();
         formulaDragState = null;
+        fillDragState = null;
         justInjectedFormula = false;
         state.clearDirty();
         el.empty();
-        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders, persistPluginSettings);
+        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders, persistPluginSettings, destroyRef);
     };
 
     const engine = new MathEngine(state);
     const cellInputs = new Map<string, { ta: HTMLTextAreaElement; td: HTMLElement; adjustHeight: () => void }>();
     const selectedCellIds = new Set<string>();
     let lastActiveCellId: string | null = null;
-    /** Suppresses bulk-selection click handling after a formula point-mode injection (see module `formulaDragState`). */
-    let justInjectedFormula = false;
 
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
@@ -127,9 +130,11 @@ export const renderTableUI = (
         let num: number | null = null;
 
         if (formula) {
-            const ev = engine.evaluateFormula(raw as string);
-            if (typeof ev === 'number' && Number.isFinite(ev)) num = ev;
-            else if (typeof ev === 'string' || typeof ev === 'boolean') return String(ev);
+            const result = engine.evaluateFormula(raw as string);
+            if (typeof result === 'string') {
+                return result;
+            }
+            num = result;
         } else if (typeof raw === 'number') num = raw;
 
         if (num !== null) {
@@ -175,6 +180,7 @@ export const renderTableUI = (
         ta.classList.toggle('live-formula-cell-input--bold', !!fmt.bold);
         ta.classList.toggle('live-formula-cell-input--number', typeof rawData === 'number');
         applyFormulaCellStyle(ta, td, cellId);
+        ta.classList.toggle('live-formula-cell-input--error', ta.value.startsWith('#'));
     };
 
     const refreshCellDisplay = (cid: string) => {
@@ -963,4 +969,7 @@ export const renderTableUI = (
             rerender();
         });
     }
+
+    if (destroyRef) destroyRef.current = destroy;
+    return { destroy };
 };
