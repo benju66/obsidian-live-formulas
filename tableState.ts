@@ -1,9 +1,3 @@
-export interface TableSnapshot {
-    cells: string; // JSON stringified array to allow deep cloning of the Map
-    maxRow: number;
-    maxCol: number;
-}
-
 /** Cell id -> optional formula + format (values live in the markdown table body). */
 export type LiveTableMeta = Record<
     string,
@@ -81,53 +75,6 @@ export class TableState {
     maxRow = 1;
     maxCol = 1;
     dirty = false;
-
-    public undoStack: TableSnapshot[] = [];
-    public redoStack: TableSnapshot[] = [];
-
-    public saveSnapshot(): void {
-        this.undoStack.push({
-            cells: JSON.stringify(Array.from(this.cells.entries())),
-            maxRow: this.maxRow,
-            maxCol: this.maxCol,
-        });
-        if (this.undoStack.length > 50) this.undoStack.shift();
-        this.redoStack = [];
-    }
-
-    public undo(): boolean {
-        if (this.undoStack.length === 0) return false;
-
-        this.redoStack.push({
-            cells: JSON.stringify(Array.from(this.cells.entries())),
-            maxRow: this.maxRow,
-            maxCol: this.maxCol,
-        });
-
-        const snap = this.undoStack.pop()!;
-        this.cells = new Map(JSON.parse(snap.cells));
-        this.maxRow = snap.maxRow;
-        this.maxCol = snap.maxCol;
-        this.markDirty();
-        return true;
-    }
-
-    public redo(): boolean {
-        if (this.redoStack.length === 0) return false;
-
-        this.undoStack.push({
-            cells: JSON.stringify(Array.from(this.cells.entries())),
-            maxRow: this.maxRow,
-            maxCol: this.maxCol,
-        });
-
-        const snap = this.redoStack.pop()!;
-        this.cells = new Map(JSON.parse(snap.cells));
-        this.maxRow = snap.maxRow;
-        this.maxCol = snap.maxCol;
-        this.markDirty();
-        return true;
-    }
 
     markDirty(): void {
         this.dirty = true;

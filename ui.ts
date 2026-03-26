@@ -230,7 +230,6 @@ export const renderTableUI = (
         }
 
         // 3. Save to state
-        state.saveSnapshot();
         if (typeof parsed === 'string' && parsed.startsWith('=')) {
             state.setCell(id, { value: parsed, formula: parsed, format: fmt });
         } else {
@@ -340,11 +339,14 @@ export const renderTableUI = (
                 return;
             }
 
+            if (formulaBarLink) {
+                commitCellValue(formulaBarLink.input, formulaBarLink.cellId, formulaBarLink.adjustHeight);
+            }
+
             const idList =
                 selectedCellIds.size > 0 ? [...selectedCellIds] : tb.activeCellId && tb.activeInput ? [tb.activeCellId] : [];
             if (idList.length === 0) return;
 
-            state.saveSnapshot();
             for (const id of idList) {
                 applyToolbarFormatToCell(id, key, val);
             }
@@ -422,7 +424,11 @@ export const renderTableUI = (
 
                 wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
 
-                if (typeof rawData === 'string' && rawData.startsWith('=')) {
+                const freshCell = state.getCell(cellId);
+                const freshFormat = (freshCell?.format || {}) as CellData['format'];
+                const freshRaw = freshCell !== undefined ? (freshCell.formula !== undefined ? freshCell.formula : freshCell.value) : '';
+
+                if (typeof freshRaw === 'string' && freshRaw.startsWith('=')) {
                     const dragHandle = td.createEl('div', { cls: 'live-formula-drag-handle' });
                     dragHandle.addEventListener('mousedown', (e) => {
                         e.preventDefault();
@@ -434,7 +440,6 @@ export const renderTableUI = (
                                 wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
                                 if (!fillDragState) return;
 
-                                state.saveSnapshot();
                                 const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
                                 const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
                                 if (!sMatch || !cMatch) return;
@@ -467,11 +472,11 @@ export const renderTableUI = (
 
                 toolbar?.setActiveCell(input, cellId);
 
-                let editValue = rawData === undefined || rawData === null ? '' : rawData.toString();
-                if (typeof rawData === 'number') {
-                    let dec = cellFormat.decimals;
-                    if (dec === undefined && cellFormat.type === 'currency') dec = 2;
-                    if (dec !== undefined) editValue = rawData.toFixed(dec);
+                let editValue = freshRaw === undefined || freshRaw === null ? '' : freshRaw.toString();
+                if (typeof freshRaw === 'number') {
+                    let dec = freshFormat.decimals;
+                    if (dec === undefined && freshFormat.type === 'currency') dec = 2;
+                    if (dec !== undefined) editValue = freshRaw.toFixed(dec);
                 }
 
                 if (skipCellPopulateOnFocus) {
@@ -900,6 +905,12 @@ export const renderTableUI = (
             e.preventDefault();
             e.stopPropagation();
 
+            if (selectedCellIds.size === 0 && lastActiveCellId && lastActiveCellId !== cellId) {
+                selectedCellIds.add(lastActiveCellId);
+                const lastEl = wrapper.querySelector(`textarea[data-cell-id="${lastActiveCellId}"]`);
+                if (lastEl) lastEl.classList.add('is-selected');
+            }
+
             if (selectedCellIds.has(cellId)) {
                 selectedCellIds.delete(cellId);
                 cellInput.classList.remove('is-selected');
@@ -947,48 +958,4 @@ export const renderTableUI = (
             rerender();
         });
     }
-
-    wrapper.addEventListener('keydown', (e: KeyboardEvent) => {
-        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-        if (cmdOrCtrl && (e.key === 'z' || e.key === 'Z')) {
-            const active = document.activeElement as HTMLTextAreaElement;
-
-            if (active && active.tagName === 'TEXTAREA') {
-                const id = active.getAttribute('data-cell-id');
-                if (id && active.value !== getDisplayStringForCell(id)) {
-                    return;
-                }
-            }
-
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (e.shiftKey) {
-                if (state.redo()) {
-                    saveStateToFile();
-                    rerender();
-                }
-            } else {
-                if (state.undo()) {
-                    saveStateToFile();
-                    rerender();
-                }
-            }
-        } else if (cmdOrCtrl && (e.key === 'y' || e.key === 'Y')) {
-            const active = document.activeElement as HTMLTextAreaElement;
-            if (active && active.tagName === 'TEXTAREA') {
-                const id = active.getAttribute('data-cell-id');
-                if (id && active.value !== getDisplayStringForCell(id)) return;
-            }
-
-            e.preventDefault();
-            e.stopPropagation();
-            if (state.redo()) {
-                saveStateToFile();
-                rerender();
-            }
-        }
-    });
 };

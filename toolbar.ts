@@ -19,10 +19,8 @@ export class TableToolbar {
             const cls = ['live-formula-toolbar-btn'];
             if (opts?.bold) cls.push('live-formula-toolbar-btn--bold');
             const btn = this.el.createEl('button', { text, cls: cls.join(' ') });
-            btn.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                onClick(e);
-            });
+            btn.addEventListener('mousedown', (e) => e.preventDefault());
+            btn.addEventListener('click', (e) => onClick(e));
         };
 
         createBtn('B', () => this.onFormat('bold', true), { bold: true });

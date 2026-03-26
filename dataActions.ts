@@ -33,7 +33,6 @@ function cloneCell(c: CellData): CellData {
 }
 
 export const insertRow = (state: TableState, targetRow: number) => {
-    state.saveSnapshot();
     const cols = state.getColumnLetters();
     const next = new Map<string, CellData>();
 
@@ -52,6 +51,10 @@ export const insertRow = (state: TableState, targetRow: number) => {
     state.cells = next;
     state.recalculateExtents();
 
+    for (let c = 1; c <= state.maxCol; c++) {
+        state.cells.delete(`${columnIndexToLetters(c)}${targetRow}`);
+    }
+
     for (const [, cell] of state.cells) {
         if (cell.formula) {
             cell.formula = shiftFormulaReferences(cell.formula, 'row', targetRow, 1);
@@ -63,7 +66,6 @@ export const insertRow = (state: TableState, targetRow: number) => {
 };
 
 export const deleteRow = (state: TableState, targetRow: number) => {
-    state.saveSnapshot();
     const next = new Map<string, CellData>();
 
     for (const [key, cell] of state.cells) {
@@ -111,6 +113,10 @@ export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: 
     state.cells = next;
     state.recalculateExtents();
 
+    for (let r = 1; r <= maxRow; r++) {
+        state.cells.delete(`${columnIndexToLetters(insertBeforeIndex)}${r}`);
+    }
+
     for (const [, cell] of state.cells) {
         if (cell.formula) {
             cell.formula = shiftFormulaReferences(cell.formula, 'col', insertBeforeIndex, 1);
@@ -123,7 +129,6 @@ export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: 
 
 /** Delete the column at 1-based Excel index (1 = A). */
 export const deleteCol = (state: TableState, columnIndex: number) => {
-    state.saveSnapshot();
     const next = new Map<string, CellData>();
 
     for (const [key, cell] of state.cells) {
