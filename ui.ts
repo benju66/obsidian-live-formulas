@@ -576,13 +576,20 @@ export const renderTableUI = (
                     e.preventDefault();
                     for (const id of selectedCellIds) {
                         const cell = state.getCell(id);
-                        state.setCell(id, {
-                            value: '',
-                            formula: undefined,
-                            format: cell?.format || {},
-                        });
-                        refreshCellDisplay(id);
+                        state.setCell(id, { value: '', formula: undefined, format: cell?.format || {} });
+
+                        const meta = cellInputs.get(id);
+                        if (meta) {
+                            meta.ta.value = '';
+                            syncCellPresentation(meta.ta, meta.td, id);
+                            meta.adjustHeight();
+                        }
                     }
+
+                    if (formulaBarLink && selectedCellIds.has(formulaBarLink.cellId)) {
+                        formulaBarInput.value = '';
+                    }
+
                     state.markDirty();
                     saveStateToFile();
                     return;
