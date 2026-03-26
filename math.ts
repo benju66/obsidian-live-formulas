@@ -83,11 +83,15 @@ export class MathEngine {
     private parser: Parser;
     private dependencyGraph = new DependencyGraph();
     private evalVisiting = new Set<string>();
-    private batchNumericCache: Map<string, number> | null = null;
+    private batchNumericCache: Map<string, unknown> | null = null;
 
     constructor(private state: TableState) {
         this.parser = new Parser();
-        this.parser.functions.CELL = (cellId: string) => this.lookupCell(String(cellId).toUpperCase());
+
+        this.parser.functions.CELL = (cellId: string) => {
+            return this.lookupCellRaw(String(cellId).toUpperCase());
+        };
+
         this.parser.functions.SUM = (...args: number[]) => {
             let s = 0;
             for (const a of args) {
@@ -96,24 +100,44 @@ export class MathEngine {
             }
             return s;
         };
+
+        this.parser.functions.IF = (condition: unknown, trueVal: unknown, falseVal: unknown) => {
+            return condition ? trueVal : falseVal;
+        };
+
+        this.parser.functions.AND = (...args: unknown[]) => {
+            return args.every((arg) => !!arg);
+        };
+
+        this.parser.functions.OR = (...args: unknown[]) => {
+            return args.some((arg) => !!arg);
+        };
+
+        this.parser.functions.NOT = (condition: unknown) => {
+            return !condition;
+        };
+
+        this.parser.functions.CONCAT = (...args: unknown[]) => {
+            return args.map(String).join('');
+        };
+
+        this.parser.functions.TODAY = () => {
+            const d = new Date();
+            return d.toISOString().split('T')[0];
+        };
+
+        this.parser.functions.NOW = () => {
+            const d = new Date();
+            return d.toISOString().slice(0, 16).replace('T', ' ');
+        };
     }
 
-    private numericFromCellValue(value: unknown): number {
-        if (typeof value === 'number' && !isNaN(value)) return value;
-        if (typeof value === 'string') {
-            const stripped = value.replace(/,/g, '');
-            const n = Number(stripped);
-            return isNaN(n) || stripped === '' ? 0 : n;
-        }
-        return 0;
-    }
-
-    private lookupCell(id: string): number {
+    private lookupCellRaw(id: string): unknown {
         if (this.batchNumericCache?.has(id)) {
             return this.batchNumericCache.get(id)!;
         }
         const cell = this.state.getCell(id);
-        if (!cell) return 0;
+        if (!cell) return '';
         if (cell.formula) {
             if (this.batchNumericCache !== null) {
                 return 0;
@@ -123,29 +147,32 @@ export class MathEngine {
             try {
                 const expr = formulaToExpr(cell.formula);
                 const v = this.parser.parse(expr).evaluate({});
-                const n = typeof v === 'number' ? v : 0;
-                return Number.isFinite(n) ? n : 0;
+                return v;
             } catch {
                 return 0;
             } finally {
                 this.evalVisiting.delete(id);
             }
         }
-        return this.numericFromCellValue(cell.value);
+        const v = cell.value;
+        if (v === undefined || v === null || v === '') return '';
+        if (typeof v === 'number') return v;
+        return v;
     }
 
     toExpr(formula: string): string {
         return formulaToExpr(formula);
     }
 
-    evaluateFormula(formula: string): number {
+    evaluateFormula(formula: string): number | string | boolean {
         const prev = this.batchNumericCache;
         this.batchNumericCache = null;
         try {
             const expr = formulaToExpr(formula);
             const v = this.parser.parse(expr).evaluate({});
-            const n = typeof v === 'number' ? v : 0;
-            return Number.isFinite(n) ? n : 0;
+            if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+            if (typeof v === 'string' || typeof v === 'boolean') return v;
+            return 0;
         } catch {
             return 0;
         } finally {
@@ -190,8 +217,7 @@ export class MathEngine {
                 if (!cell?.formula) continue;
                 const expr = formulaToExpr(cell.formula);
                 const v = this.parser.parse(expr).evaluate({});
-                const num = typeof v === 'number' && Number.isFinite(v) ? v : 0;
-                this.batchNumericCache.set(id, num);
+                this.batchNumericCache.set(id, v);
                 updated.push(id);
             }
         } finally {

@@ -123,8 +123,11 @@ export const renderTableUI = (
         const formula = typeof raw === 'string' && raw.startsWith('=');
         let num: number | null = null;
 
-        if (formula) num = engine.evaluateFormula(raw as string);
-        else if (typeof raw === 'number') num = raw;
+        if (formula) {
+            const ev = engine.evaluateFormula(raw as string);
+            if (typeof ev === 'number' && Number.isFinite(ev)) num = ev;
+            else if (typeof ev === 'string' || typeof ev === 'boolean') return String(ev);
+        } else if (typeof raw === 'number') num = raw;
 
         if (num !== null) {
             const useCurrency = fmt.type === 'currency';
