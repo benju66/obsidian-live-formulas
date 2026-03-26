@@ -23,7 +23,6 @@ export class SelectionManager {
         private editor: CellEditor,
         private onStateChange: () => void
     ) {
-        // Allow wrapper to intercept keyboard events
         this.wrapper.tabIndex = 0;
         this.wrapper.style.outline = 'none';
         this.attachListeners();
@@ -37,14 +36,17 @@ export class SelectionManager {
     }
 
     private onMouseDown = (e: MouseEvent) => {
-        if (e.button !== 0) return; // Only process left-clicks
+        if (e.button !== 0) return;
 
         const target = e.target as HTMLElement;
         const td = target.closest('.live-formula-cell') as HTMLElement;
 
         if (!td) {
-            // Clicked outside the grid entirely
-            if (!target.closest('.live-formula-floating-editor')) {
+            if (
+                !target.closest('.live-formula-floating-editor') &&
+                !target.closest('.live-formula-toolbar-ribbon') &&
+                !target.closest('.live-formula-formula-bar')
+            ) {
                 this.clearSelection();
             }
             return;
@@ -52,24 +54,38 @@ export class SelectionManager {
 
         const cellId = td.getAttribute('data-cell-id');
         if (!cellId) return;
-
-        // If the floating editor is currently open on this cell, do not interfere
         if (this.editor.el.style.display === 'block' && this.activeCellId === cellId) return;
 
         this.isDragging = true;
-        this.startDragId = cellId;
+
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
         if (e.shiftKey && this.activeCellId) {
             e.preventDefault();
             this.selectRange(this.activeCellId, cellId);
+        } else if (cmdOrCtrl) {
+            e.preventDefault();
+            if (this.selectedIds.has(cellId)) {
+                this.selectedIds.delete(cellId);
+                if (this.activeCellId === cellId) {
+                    this.activeCellId = this.selectedIds.size > 0 ? Array.from(this.selectedIds)[0] : null;
+                }
+            } else {
+                this.selectedIds.add(cellId);
+                this.activeCellId = cellId;
+            }
+            this.startDragId = this.activeCellId;
+            this.renderSelection();
+            this.onSelectionChange?.(this.activeCellId);
+            this.wrapper.focus();
         } else {
             this.clearSelection();
             this.activeCellId = cellId;
-            this.onSelectionChange?.(this.activeCellId);
+            this.startDragId = cellId;
             this.selectedIds.add(cellId);
             this.renderSelection();
-
-            // Force focus back to the wrapper so it catches keyboard events
+            this.onSelectionChange?.(this.activeCellId);
             this.wrapper.focus();
         }
     };
@@ -136,29 +152,49 @@ export class SelectionManager {
         }
     }
 
+    public moveActiveCell(direction: 'Up' | 'Down' | 'Left' | 'Right') {
+        if (!this.activeCellId) return;
+        const match = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return;
+
+        let r = parseInt(match[2], 10);
+        let c = lettersToColumnIndex(match[1]);
+
+        if (direction === 'Up') r = Math.max(1, r - 1);
+        else if (direction === 'Down') r = Math.min(this.state.maxRow, r + 1);
+        else if (direction === 'Left') c = Math.max(1, c - 1);
+        else if (direction === 'Right') c = Math.min(this.state.maxCol, c + 1);
+
+        const newId = `${columnIndexToLetters(c)}${r}`;
+        this.clearSelection();
+        this.activeCellId = newId;
+        this.startDragId = newId;
+        this.selectedIds.add(newId);
+        this.renderSelection();
+        this.onSelectionChange?.(this.activeCellId);
+        this.wrapper.focus();
+    }
+
     private onKeyDown = (e: KeyboardEvent) => {
-        // Ignore if the user is actively typing inside the floating editor
         if (this.editor.el.style.display === 'block') return;
         if (!this.activeCellId) return;
 
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-        // 1. Bulk Delete
         if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
             for (const id of this.selectedIds) {
                 const cell = this.state.getCell(id);
                 this.state.setCell(id, { value: '', formula: undefined, format: cell?.format });
                 const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
-                if (td) td.textContent = ''; // Clear display
+                if (td) td.textContent = '';
             }
             this.state.markDirty();
             this.onStateChange();
             return;
         }
 
-        // 2. Arrow Key Navigation & Enter to Edit
         const match = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
         if (match) {
             const cLetter = match[1];
@@ -189,27 +225,28 @@ export class SelectionManager {
                 e.preventDefault();
                 const newId = `${columnIndexToLetters(c)}${r}`;
 
-                // If Shift is held, expand selection. Otherwise move active cell.
                 if (e.shiftKey && this.startDragId) {
                     this.selectRange(this.startDragId, newId);
+                    this.activeCellId = newId;
+                    this.renderSelection();
                 } else {
                     this.clearSelection();
                     this.activeCellId = newId;
-                    this.onSelectionChange?.(this.activeCellId);
                     this.startDragId = newId;
                     this.selectedIds.add(newId);
                     this.renderSelection();
                 }
+                this.onSelectionChange?.(this.activeCellId);
                 return;
             }
         }
 
-        // 3. Type-to-Edit (Excel standard behavior)
         if (e.key.length === 1 && !cmdOrCtrl && !e.altKey) {
+            e.preventDefault();
             const td = this.wrapper.querySelector(`td[data-cell-id="${this.activeCellId}"]`) as HTMLElement;
             if (td) {
                 this.editor.open(this.activeCellId, td);
-                this.editor.el.value = ''; // Clear old data to overwrite with new typing
+                this.editor.el.value = e.key;
             }
         }
     };

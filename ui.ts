@@ -7,6 +7,17 @@ import * as Actions from './dataActions';
 import { CellEditor } from './src/cellEditor';
 import { SelectionManager } from './src/selectionManager';
 
+const balanceFormulaParens = (formula: string): string => {
+    if (!formula.startsWith('=')) return formula;
+    let depth = 0;
+    for (const ch of formula) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+    }
+    if (depth > 0) return formula + ')'.repeat(Math.min(depth, 32));
+    return formula;
+};
+
 export const renderTableUI = (
     el: HTMLElement,
     state: TableState,
@@ -33,6 +44,15 @@ export const renderTableUI = (
     // Top Bar (Formula & Toolbar)
     const formulaBarWrapper = container.createEl('div', { cls: 'live-formula-formula-bar' });
     formulaBarWrapper.createEl('span', { text: 'fx', cls: 'live-formula-formula-bar-label' });
+    let ribbonToggleBtn: HTMLButtonElement | null = null;
+    if (settings.showToolbar) {
+        ribbonToggleBtn = formulaBarWrapper.createEl('button', {
+            type: 'button',
+            cls: 'live-formula-formula-bar-ribbon-toggle',
+            text: '⌄',
+            attr: { 'aria-label': 'Toggle formatting ribbon', title: 'Toggle formatting ribbon' },
+        });
+    }
     const formulaBarInput = formulaBarWrapper.createEl('input', { type: 'text', cls: 'live-formula-formula-bar-input' });
     formulaBarInput.disabled = true;
 
@@ -82,11 +102,17 @@ export const renderTableUI = (
         td.style.color = out.startsWith('#') ? 'var(--text-error)' : '';
     };
 
-    const cellEditor = new CellEditor(wrapper, state, engine, (updatedCellIds) => {
+    let selectionManager!: SelectionManager;
+    const cellEditor = new CellEditor(wrapper, state, engine, (updatedCellIds, moveDirection) => {
         updatedCellIds.forEach((id) => refreshCellDisplay(id));
         saveStateToFile();
+        if (moveDirection) {
+            selectionManager.moveActiveCell(moveDirection);
+        } else {
+            wrapper.focus();
+        }
     });
-    const selectionManager = new SelectionManager(wrapper, state, cellEditor, () => {
+    selectionManager = new SelectionManager(wrapper, state, cellEditor, () => {
         saveStateToFile();
     });
 
@@ -249,7 +275,19 @@ export const renderTableUI = (
             saveStateToFile();
             wrapper.focus();
         });
+        tb.el.style.display = settings.toolbarVisible !== false ? 'flex' : 'none';
         container.insertBefore(tb.el, tableScroll);
+    }
+
+    if (ribbonToggleBtn) {
+        ribbonToggleBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            settings.toolbarVisible = !(settings.toolbarVisible !== false);
+            const tbEl = container.querySelector('.live-formula-toolbar-ribbon') as HTMLElement;
+            if (tbEl) tbEl.style.display = settings.toolbarVisible ? 'flex' : 'none';
+            void persistPluginSettings?.();
+        });
     }
 
     if (destroyRef) destroyRef.current = destroy;

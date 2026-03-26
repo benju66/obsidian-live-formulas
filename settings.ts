@@ -16,13 +16,14 @@ export interface LiveFormulasSettings {
 
 export const DEFAULT_SETTINGS: LiveFormulasSettings = {
     currencySymbol: '$',
+    accountingNegatives: false,
     enableHoverButtons: true,
     showToolbar: true,
     toolbarVisible: true,
     showHeaders: true,
     defaultRows: 2,
     defaultCols: 2,
-}
+};
 
 export class LiveFormulasSettingTab extends PluginSettingTab {
     plugin: LiveFormulasPlugin;

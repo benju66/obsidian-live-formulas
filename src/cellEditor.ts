@@ -1,6 +1,19 @@
 import { TableState } from '../tableState';
 import { MathEngine } from '../math';
 
+const balanceFormulaParens = (formula: string): string => {
+    if (!formula.startsWith('=')) return formula;
+    let depth = 0;
+    for (const ch of formula) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+    }
+    if (depth > 0) return formula + ')'.repeat(Math.min(depth, 32));
+    return formula;
+};
+
+export type CellEditorMoveDirection = 'Up' | 'Down' | 'Left' | 'Right';
+
 export class CellEditor {
     public el: HTMLTextAreaElement;
     private activeCellId: string | null = null;
@@ -10,13 +23,12 @@ export class CellEditor {
         private wrapper: HTMLElement,
         private state: TableState,
         private engine: MathEngine,
-        private onSave: (updatedCellIds: string[]) => void
+        private onSave: (updatedCellIds: string[], moveDirection?: CellEditorMoveDirection) => void
     ) {
         this.el = document.createElement('textarea');
         this.el.className = 'live-formula-floating-editor';
         this.el.style.display = 'none';
 
-        // Ensure wrapper can anchor the absolute positioning
         this.wrapper.style.position = 'relative';
         this.wrapper.appendChild(this.el);
 
@@ -24,24 +36,24 @@ export class CellEditor {
     }
 
     private attachListeners() {
-        // 1. Double-click a cell to open the editor
         this.wrapper.addEventListener('dblclick', (e) => {
             const target = e.target as HTMLElement;
             const td = target.closest('.live-formula-cell') as HTMLElement;
-            if (!td) return;
-
-            const cellId = td.getAttribute('data-cell-id');
-            if (cellId) this.open(cellId, td);
+            if (td) {
+                const cellId = td.getAttribute('data-cell-id');
+                if (cellId) this.open(cellId, td);
+            }
         });
 
-        // 2. Close and save when clicking away
         this.el.addEventListener('blur', () => this.commitAndClose());
 
-        // 3. Close and save when hitting Enter (without Shift)
         this.el.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter') {
                 e.preventDefault();
-                this.commitAndClose();
+                this.commitAndClose(e.shiftKey ? 'Up' : 'Down');
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                this.commitAndClose(e.shiftKey ? 'Left' : 'Right');
             }
         });
     }
@@ -54,28 +66,28 @@ export class CellEditor {
         const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
         this.el.value = raw === undefined || raw === null ? '' : raw.toString();
 
-        // Teleport the editor over the target cell
         const wrapperRect = this.wrapper.getBoundingClientRect();
         const tdRect = td.getBoundingClientRect();
 
         this.el.style.display = 'block';
         this.el.style.top = `${tdRect.top - wrapperRect.top + this.wrapper.scrollTop}px`;
         this.el.style.left = `${tdRect.left - wrapperRect.left + this.wrapper.scrollLeft}px`;
-        this.el.style.width = `${tdRect.width + 1}px`; // +1 to cover borders perfectly
+        this.el.style.width = `${tdRect.width + 1}px`;
         this.el.style.height = `${tdRect.height + 1}px`;
 
         this.el.focus();
         this.el.setSelectionRange(this.el.value.length, this.el.value.length);
     }
 
-    private commitAndClose() {
+    private commitAndClose(moveDirection?: CellEditorMoveDirection) {
         if (!this.activeCellId) return;
 
-        const newValue = this.el.value.trim();
+        let newValue = this.el.value.trim();
+        newValue = balanceFormulaParens(newValue);
+
         const cellId = this.activeCellId;
         const cell = this.state.ensureCell(cellId);
 
-        // Basic data parsing
         let parsed: string | number = newValue;
         if (newValue !== '' && !newValue.startsWith('=')) {
             const asNum = Number(newValue.replace(/,/g, ''));
@@ -93,17 +105,14 @@ export class CellEditor {
         this.state.setCell(cellId, cell);
         this.state.markDirty();
 
-        // Trigger Math Engine & Dependency Updates
         const { updated, cyclic } = this.engine.updateCellAndDependents(cellId);
         const cellsToRefresh = cyclic ? [cellId] : updated.length > 0 ? updated : [cellId];
 
-        // Hide editor
         this.el.style.display = 'none';
         this.activeCellId = null;
         this.activeTd = null;
 
-        // Notify UI orchestrator to repaint the changed cells and save to file
-        this.onSave(cellsToRefresh);
+        this.onSave(cellsToRefresh, moveDirection);
     }
 
     public destroy() {
