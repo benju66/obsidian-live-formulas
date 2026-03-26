@@ -3,6 +3,8 @@ import { CellEditor } from './cellEditor';
 
 export class SelectionManager {
     public onSelectionChange: ((activeId: string | null) => void) | null = null;
+    public onUndo: (() => void) | null = null;
+    public onRedo: (() => void) | null = null;
 
     private selectedIds = new Set<string>();
     private activeCellId: string | null = null;
@@ -42,12 +44,22 @@ export class SelectionManager {
         const td = target.closest('.live-formula-cell') as HTMLElement;
 
         if (td && this.editor.el.style.display === 'block') {
-            const cellId = td.getAttribute('data-cell-id');
-            if (cellId) {
-                e.preventDefault();
-                this.editor.injectReference(cellId);
+            if (this.editor.el.value.startsWith('=')) {
+                const cellId = td.getAttribute('data-cell-id');
+                if (cellId) {
+                    e.preventDefault();
+                    const val = this.editor.el.value;
+                    const prevChar = val.charAt((this.editor.el.selectionStart ?? val.length) - 1);
+                    const needsComma =
+                        e.ctrlKey ||
+                        e.metaKey ||
+                        !!(prevChar && !['(', '=', '+', '-', '*', '/', ','].includes(prevChar));
+                    this.editor.injectReference(cellId, needsComma);
+                }
+                return;
+            } else {
+                this.editor.commitAndClose();
             }
-            return;
         }
 
         const activeEl = document.activeElement as HTMLInputElement | null;
@@ -55,11 +67,25 @@ export class SelectionManager {
             const cellId = td.getAttribute('data-cell-id');
             if (cellId) {
                 e.preventDefault();
-                const start = activeEl.selectionStart ?? activeEl.value.length;
-                const end = activeEl.selectionEnd ?? activeEl.value.length;
-                activeEl.value = activeEl.value.substring(0, start) + cellId + activeEl.value.substring(end);
-                activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
-                activeEl.focus();
+                if (activeEl.value.startsWith('=')) {
+                    const prevChar = activeEl.value.charAt((activeEl.selectionStart ?? activeEl.value.length) - 1);
+                    const needsComma =
+                        e.ctrlKey ||
+                        e.metaKey ||
+                        !!(prevChar && !['(', '=', '+', '-', '*', '/', ','].includes(prevChar));
+                    const injection = needsComma ? `,${cellId}` : cellId;
+                    const start = activeEl.selectionStart ?? activeEl.value.length;
+                    const end = activeEl.selectionEnd ?? activeEl.value.length;
+                    activeEl.value = activeEl.value.substring(0, start) + injection + activeEl.value.substring(end);
+                    activeEl.setSelectionRange(start + injection.length, start + injection.length);
+                    activeEl.focus();
+                } else {
+                    const start = activeEl.selectionStart ?? activeEl.value.length;
+                    const end = activeEl.selectionEnd ?? activeEl.value.length;
+                    activeEl.value = activeEl.value.substring(0, start) + cellId + activeEl.value.substring(end);
+                    activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
+                    activeEl.focus();
+                }
             }
             return;
         }
@@ -198,13 +224,23 @@ export class SelectionManager {
     }
 
     private onKeyDown = (e: KeyboardEvent) => {
+        if (document.activeElement?.classList.contains('live-formula-formula-bar-input')) return;
         if (this.editor.el.style.display === 'block') return;
         if (!this.activeCellId) return;
 
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-        if (cmdOrCtrl && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) return;
+        if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
+            e.preventDefault();
+            this.onUndo?.();
+            return;
+        }
+        if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
+            e.preventDefault();
+            this.onRedo?.();
+            return;
+        }
 
         if (e.key === 'Tab') {
             e.preventDefault();

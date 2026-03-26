@@ -23,7 +23,8 @@ export class CellEditor {
         private wrapper: HTMLElement,
         private state: TableState,
         private engine: MathEngine,
-        private onSave: (updatedCellIds: string[], moveDirection?: CellEditorMoveDirection) => void
+        private onSave: (updatedCellIds: string[], moveDirection?: CellEditorMoveDirection) => void,
+        private onInput?: (val: string) => void
     ) {
         this.el = document.createElement('textarea');
         this.el.className = 'live-formula-floating-editor';
@@ -31,6 +32,8 @@ export class CellEditor {
 
         this.wrapper.style.position = 'relative';
         this.wrapper.appendChild(this.el);
+
+        this.el.addEventListener('input', () => this.onInput?.(this.el.value));
 
         this.attachListeners();
     }
@@ -58,12 +61,14 @@ export class CellEditor {
         });
     }
 
-    public injectReference(cellId: string) {
+    public injectReference(cellId: string, needsComma = false) {
         const start = this.el.selectionStart ?? this.el.value.length;
         const end = this.el.selectionEnd ?? this.el.value.length;
-        this.el.value = this.el.value.substring(0, start) + cellId + this.el.value.substring(end);
-        this.el.setSelectionRange(start + cellId.length, start + cellId.length);
+        const injection = needsComma ? `,${cellId}` : cellId;
+        this.el.value = this.el.value.substring(0, start) + injection + this.el.value.substring(end);
+        this.el.setSelectionRange(start + injection.length, start + injection.length);
         this.el.focus();
+        this.onInput?.(this.el.value);
     }
 
     public open(cellId: string, td: HTMLElement) {
@@ -85,9 +90,10 @@ export class CellEditor {
 
         this.el.focus();
         this.el.setSelectionRange(this.el.value.length, this.el.value.length);
+        this.onInput?.(this.el.value);
     }
 
-    private commitAndClose(moveDirection?: CellEditorMoveDirection) {
+    public commitAndClose(moveDirection?: CellEditorMoveDirection) {
         if (!this.activeCellId) return;
 
         let newValue = this.el.value.trim();

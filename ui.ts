@@ -2,7 +2,7 @@ import { Menu } from 'obsidian';
 import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
-import { TableState, lettersToColumnIndex } from './tableState';
+import { TableState, CellData, lettersToColumnIndex } from './tableState';
 import * as Actions from './dataActions';
 import { CellEditor } from './src/cellEditor';
 import { SelectionManager } from './src/selectionManager';
@@ -30,6 +30,33 @@ export const renderTableUI = (
     const engine = new MathEngine(state);
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
+
+    const captureSnapshot = () => {
+        const snapshot: Record<string, CellData> = {};
+        for (let r = 1; r <= rows; r++) {
+            for (const c of cols) {
+                const id = `${c}${r}`;
+                const cell = state.getCell(id);
+                if (cell) snapshot[id] = JSON.parse(JSON.stringify(cell)) as CellData;
+            }
+        }
+        return JSON.stringify(snapshot);
+    };
+
+    const st = state as TableState & { undoStack?: string[]; redoStack?: string[] };
+    if (!st.undoStack) st.undoStack = [];
+    if (!st.redoStack) st.redoStack = [];
+    let lastSnapshot = captureSnapshot();
+
+    const saveWithHistory = () => {
+        const current = captureSnapshot();
+        if (current !== lastSnapshot) {
+            st.undoStack!.push(lastSnapshot);
+            st.redoStack = [];
+            lastSnapshot = current;
+        }
+        saveStateToFile();
+    };
 
     const rerender = () => {
         if (destroyRef) destroyRef.current();
@@ -102,18 +129,73 @@ export const renderTableUI = (
         td.style.color = out.startsWith('#') ? 'var(--text-error)' : '';
     };
 
+    const syncRef = { fromBar: false };
+
     let selectionManager!: SelectionManager;
-    const cellEditor = new CellEditor(wrapper, state, engine, (updatedCellIds, moveDirection) => {
-        updatedCellIds.forEach((id) => refreshCellDisplay(id));
-        saveStateToFile();
-        if (moveDirection) {
-            selectionManager.moveActiveCell(moveDirection);
-        } else {
-            wrapper.focus();
+    const cellEditor = new CellEditor(
+        wrapper,
+        state,
+        engine,
+        (updatedCellIds, moveDirection) => {
+            updatedCellIds.forEach((id) => refreshCellDisplay(id));
+            saveWithHistory();
+            if (moveDirection) {
+                selectionManager.moveActiveCell(moveDirection);
+            } else {
+                wrapper.focus();
+            }
+        },
+        (val) => {
+            if (!syncRef.fromBar) formulaBarInput.value = val;
         }
-    });
+    );
     selectionManager = new SelectionManager(wrapper, state, cellEditor, () => {
-        saveStateToFile();
+        saveWithHistory();
+    });
+
+    selectionManager.onUndo = () => {
+        const stack = st.undoStack!;
+        if (stack.length > 0) {
+            st.redoStack!.push(captureSnapshot());
+            const prev = JSON.parse(stack.pop()!) as Record<string, CellData>;
+            for (const id in prev) state.setCell(id, prev[id]);
+            state.markDirty();
+            lastSnapshot = captureSnapshot();
+            saveStateToFile();
+            rerender();
+        }
+    };
+    selectionManager.onRedo = () => {
+        const stack = st.redoStack!;
+        if (stack.length > 0) {
+            st.undoStack!.push(captureSnapshot());
+            const next = JSON.parse(stack.pop()!) as Record<string, CellData>;
+            for (const id in next) state.setCell(id, next[id]);
+            state.markDirty();
+            lastSnapshot = captureSnapshot();
+            saveStateToFile();
+            rerender();
+        }
+    };
+
+    formulaBarInput.addEventListener('input', (e) => {
+        const val = (e.target as HTMLInputElement).value;
+        if (cellEditor.el.style.display === 'block') {
+            syncRef.fromBar = true;
+            cellEditor.el.value = val;
+            syncRef.fromBar = false;
+        } else {
+            const activeId = selectionManager.getActiveCellId();
+            if (activeId) {
+                const td = wrapper.querySelector(`td[data-cell-id="${activeId}"]`) as HTMLElement;
+                if (td) {
+                    cellEditor.open(activeId, td);
+                    syncRef.fromBar = true;
+                    cellEditor.el.value = val;
+                    syncRef.fromBar = false;
+                }
+            }
+        }
     });
 
     // 3. Draw the Display Grid (Plain HTML TDs, no Textareas)
@@ -146,21 +228,21 @@ export const renderTableUI = (
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Above').onClick(() => {
                         Actions.insertRow(state, r);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Below').onClick(() => {
                         Actions.insertRow(state, r + 1);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Delete Row').onClick(() => {
                         Actions.deleteRow(state, r);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
@@ -168,21 +250,21 @@ export const renderTableUI = (
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Left').onClick(() => {
                         Actions.insertCol(state, colIdx, rows);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Right').onClick(() => {
                         Actions.insertCol(state, colIdx + 1, rows);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
                 menu.addItem((i) =>
                     i.setTitle('Delete Column').onClick(() => {
                         Actions.deleteCol(state, colIdx);
-                        saveStateToFile();
+                        saveWithHistory();
                         rerender();
                     })
                 );
@@ -238,7 +320,7 @@ export const renderTableUI = (
             const { updated, cyclic } = engine.updateCellAndDependents(activeId);
             const cellsToRefresh = cyclic ? [activeId] : updated.length > 0 ? updated : [activeId];
             cellsToRefresh.forEach((id) => refreshCellDisplay(id));
-            saveStateToFile();
+            saveWithHistory();
             wrapper.focus();
         }
     });
@@ -273,7 +355,7 @@ export const renderTableUI = (
                 refreshCellDisplay(id);
             }
             state.markDirty();
-            saveStateToFile();
+            saveWithHistory();
             setTimeout(() => {
                 selectionManager.renderSelection();
                 wrapper.focus();
@@ -309,12 +391,12 @@ export const renderTableUI = (
         addColBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addColBtn.addEventListener('click', () => {
             Actions.insertCol(state, state.maxCol + 1, rows);
-            saveStateToFile();
+            saveWithHistory();
         });
         addRowBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addRowBtn.addEventListener('click', () => {
             Actions.insertRow(state, rows + 1);
-            saveStateToFile();
+            saveWithHistory();
         });
     }
 
