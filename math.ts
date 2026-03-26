@@ -126,55 +126,47 @@ export class MathEngine {
     private parser: Parser;
     private dependencyGraph = new DependencyGraph();
     private evalVisiting = new Set<string>();
-    private batchNumericCache: Map<string, unknown> | null = null;
+    private batchNumericCache: Map<string, number | string> | null = null;
 
     constructor(private state: TableState) {
         this.parser = new Parser();
 
+        // 1. Upgraded CELL lookup to support Strings and Booleans
         this.parser.functions.CELL = (cellId: string) => {
-            return this.lookupCellRaw(String(cellId).toUpperCase());
+            const val = this.lookupCell(String(cellId).toUpperCase());
+            if (val === undefined || val === null || val === '') return '';
+            return val;
         };
 
-        this.parser.functions.SUM = (...args: number[]) => {
+        // 2. Strict SUM function that propagates errors natively
+        this.parser.functions.SUM = (...args: unknown[]) => {
             let s = 0;
             for (const a of args) {
+                if (typeof a === 'string' && a.startsWith('#')) throw new Error(a);
+                if (typeof a === 'number' && !Number.isFinite(a)) throw new Error('#NUM!');
+
                 const n = typeof a === 'number' && !isNaN(a) ? a : 0;
-                s += Number.isFinite(n) ? n : 0;
+                s += n;
             }
             return s;
         };
 
+        // 3. Register Logical Functions
         this.parser.functions.IF = (condition: unknown, trueVal: unknown, falseVal: unknown) => {
+            if (typeof condition === 'string' && condition.startsWith('#')) throw new Error(condition);
             return condition ? trueVal : falseVal;
         };
 
-        this.parser.functions.AND = (...args: unknown[]) => {
-            return args.every((arg) => !!arg);
-        };
+        this.parser.functions.AND = (...args: unknown[]) => args.every((arg) => !!arg);
+        this.parser.functions.OR = (...args: unknown[]) => args.some((arg) => !!arg);
+        this.parser.functions.NOT = (condition: unknown) => !condition;
 
-        this.parser.functions.OR = (...args: unknown[]) => {
-            return args.some((arg) => !!arg);
-        };
+        // 4. Register String & Date Functions
+        this.parser.functions.CONCAT = (...args: unknown[]) => args.map(String).join('');
+        this.parser.functions.TODAY = () => new Date().toISOString().split('T')[0];
+        this.parser.functions.NOW = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-        this.parser.functions.NOT = (condition: unknown) => {
-            return !condition;
-        };
-
-        this.parser.functions.CONCAT = (...args: unknown[]) => {
-            return args.map(String).join('');
-        };
-
-        this.parser.functions.TODAY = () => {
-            const d = new Date();
-            return d.toISOString().split('T')[0];
-        };
-
-        this.parser.functions.NOW = () => {
-            const d = new Date();
-            return d.toISOString().slice(0, 16).replace('T', ' ');
-        };
-
-        // Lookup & Reference Functions
+        // 5. Lookup & Reference (VLOOKUP)
         this.parser.functions.VLOOKUP = (
             lookupValue: unknown,
             rangeStr: string,
@@ -199,47 +191,55 @@ export class MathEngine {
 
             const targetCol = minC + colIndex - 1;
 
-            const cellFn = this.parser.functions.CELL as (id: string) => unknown;
             for (let r = minR; r <= maxR; r++) {
                 const searchCellId = `${columnIndexToLetters(minC)}${r}`;
-                const searchVal = cellFn(searchCellId);
+                const searchVal = this.lookupCell(searchCellId);
+
                 if (searchVal == lookupValue) {
                     const returnCellId = `${columnIndexToLetters(targetCol)}${r}`;
-                    return cellFn(returnCellId);
+                    return this.lookupCell(returnCellId);
                 }
             }
-
             return '#N/A';
         };
     }
 
-    private lookupCellRaw(id: string): unknown {
+    private extractCellValue(value: unknown): number | string {
+        if (typeof value === 'number' && !isNaN(value)) return value;
+        if (typeof value === 'string') {
+            const stripped = value.replace(/,/g, '');
+            const n = Number(stripped);
+            return isNaN(n) || stripped === '' ? value : n;
+        }
+        return 0;
+    }
+
+    private lookupCell(id: string): number | string {
         if (this.batchNumericCache?.has(id)) {
             return this.batchNumericCache.get(id)!;
         }
         const cell = this.state.getCell(id);
-        if (!cell) return '';
+        if (!cell) return 0;
         if (cell.formula) {
-            if (this.batchNumericCache !== null) {
-                return 0;
-            }
-            if (this.evalVisiting.has(id)) return NaN;
+            if (this.batchNumericCache !== null) return 0;
+            if (this.evalVisiting.has(id)) return '#REF!';
+
             this.evalVisiting.add(id);
             try {
                 const expr = formulaToExpr(cell.formula);
                 const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
                 if (typeof v === 'number' && !Number.isFinite(v)) return '#NUM!';
-                return v;
-            } catch {
+                if (typeof v === 'boolean') return String(v);
+                return v as number | string;
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : '';
+                if (msg.startsWith('#')) return msg;
                 return '#VALUE!';
             } finally {
                 this.evalVisiting.delete(id);
             }
         }
-        const v = cell.value;
-        if (v === undefined || v === null || v === '') return '';
-        if (typeof v === 'number') return v;
-        return v;
+        return this.extractCellValue(cell.value);
     }
 
     toExpr(formula: string): string {
@@ -255,7 +255,9 @@ export class MathEngine {
             if (typeof v === 'number' && !Number.isFinite(v)) return '#NUM!';
             if (typeof v === 'boolean') return String(v);
             return v as number | string;
-        } catch {
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : '';
+            if (msg.startsWith('#')) return msg;
             return '#VALUE!';
         } finally {
             this.batchNumericCache = prev;
@@ -273,10 +275,6 @@ export class MathEngine {
         }
     }
 
-    /**
-     * Recalculate transitive formula dependents of startCellId in dependency order.
-     * Does not mutate TableState cell values (display-only numbers come from evaluation).
-     */
     updateCellAndDependents(startCellId: string): { updated: string[]; cyclic: boolean } {
         this.rebuildDependentsFromState();
         const affected = this.dependencyGraph.getTransitiveDependents(startCellId);
@@ -297,9 +295,21 @@ export class MathEngine {
             for (const id of order) {
                 const cell = this.state.getCell(id);
                 if (!cell?.formula) continue;
-                const expr = formulaToExpr(cell.formula);
-                const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
-                this.batchNumericCache.set(id, v);
+                try {
+                    const expr = formulaToExpr(cell.formula);
+                    const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
+                    const numOrStr =
+                        typeof v === 'boolean'
+                            ? String(v)
+                            : typeof v === 'number' && !Number.isFinite(v)
+                              ? '#NUM!'
+                              : (v as number | string);
+                    this.batchNumericCache.set(id, numOrStr);
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : '';
+                    const errMsg = msg.startsWith('#') ? msg : '#VALUE!';
+                    this.batchNumericCache.set(id, errMsg);
+                }
                 updated.push(id);
             }
         } finally {
