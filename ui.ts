@@ -52,7 +52,10 @@ export const renderTableUI = (
     toggleHeaders?: () => Promise<void>,
     persistPluginSettings?: () => Promise<void>
 ) => {
+    let isRerendering = false;
+
     const rerender = () => {
+        isRerendering = true;
         formulaDragState = null;
         justInjectedFormula = false;
         state.clearDirty();
@@ -255,6 +258,7 @@ export const renderTableUI = (
     let formulaBarLink: FormulaBarLink | null = null;
 
     formulaBarInput.addEventListener('blur', (ev) => {
+        if (isRerendering) return;
         const rt = ev.relatedTarget as Node | null;
         const link = formulaBarLink;
         if (!link) return;
@@ -517,6 +521,7 @@ export const renderTableUI = (
             });
 
             input.addEventListener('blur', (ev) => {
+                if (isRerendering) return;
                 const rt = ev.relatedTarget as Node | null;
                 const focusStaysInSheetChrome =
                     rt === formulaBarInput ||

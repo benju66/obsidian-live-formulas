@@ -51,10 +51,6 @@ export const insertRow = (state: TableState, targetRow: number) => {
     state.cells = next;
     state.recalculateExtents();
 
-    for (let c = 1; c <= state.maxCol; c++) {
-        state.cells.delete(`${columnIndexToLetters(c)}${targetRow}`);
-    }
-
     for (const [, cell] of state.cells) {
         if (cell.formula) {
             cell.formula = shiftFormulaReferences(cell.formula, 'row', targetRow, 1);
@@ -112,10 +108,6 @@ export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: 
 
     state.cells = next;
     state.recalculateExtents();
-
-    for (let r = 1; r <= maxRow; r++) {
-        state.cells.delete(`${columnIndexToLetters(insertBeforeIndex)}${r}`);
-    }
 
     for (const [, cell] of state.cells) {
         if (cell.formula) {
