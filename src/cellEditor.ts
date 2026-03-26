@@ -18,6 +18,7 @@ export class CellEditor {
     public el: HTMLTextAreaElement;
     private activeCellId: string | null = null;
     private activeTd: HTMLElement | null = null;
+    private isCommitting = false;
 
     constructor(
         private wrapper: HTMLElement,
@@ -53,9 +54,11 @@ export class CellEditor {
         this.el.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                e.stopPropagation();
                 this.commitAndClose(e.shiftKey ? 'Up' : 'Down');
             } else if (e.key === 'Tab') {
                 e.preventDefault();
+                e.stopPropagation();
                 this.commitAndClose(e.shiftKey ? 'Left' : 'Right');
             }
         });
@@ -94,7 +97,8 @@ export class CellEditor {
     }
 
     public commitAndClose(moveDirection?: CellEditorMoveDirection) {
-        if (!this.activeCellId) return;
+        if (!this.activeCellId || this.isCommitting) return;
+        this.isCommitting = true;
 
         let newValue = this.el.value.trim();
         newValue = balanceFormulaParens(newValue);
@@ -127,6 +131,10 @@ export class CellEditor {
         this.activeTd = null;
 
         this.onSave(cellsToRefresh, moveDirection);
+
+        setTimeout(() => {
+            this.isCommitting = false;
+        }, 20);
     }
 
     public destroy() {
