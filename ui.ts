@@ -383,6 +383,15 @@ export const renderTableUI = (
                 refreshCellDisplay(id);
             }
             state.markDirty();
+
+            // Refresh the cache immediately before saving to ensure it survives the DOM rebuild
+            const cache = {
+                activeCellId: selectionManager.getActiveCellId(),
+                selectedIds: selectionManager.getSelectedIds(),
+            };
+            statefulEl.__liveTableSelection = cache;
+            recentSelectionCache = { timestamp: Date.now(), ...cache };
+
             saveWithHistory();
             setTimeout(() => {
                 selectionManager.renderSelection();
