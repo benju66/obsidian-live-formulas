@@ -84,6 +84,24 @@ export class SelectionManager {
         this.wrapper.addEventListener('keydown', this.onKeyDown);
     }
 
+    private shouldInjectCellReference(inputEl: HTMLInputElement | HTMLTextAreaElement): boolean {
+        const val = inputEl.value;
+        const cursor = inputEl.selectionStart ?? val.length;
+        const textBefore = val.substring(0, cursor);
+
+        let depth = 0;
+        for (let i = 0; i < textBefore.length; i++) {
+            if (textBefore[i] === '(') depth++;
+            else if (textBefore[i] === ')') depth--;
+        }
+
+        // Always inject if we are inside parentheses
+        if (depth > 0) return true;
+
+        // Otherwise, only inject if immediately following an operator or comma
+        return /[\+\-\*\/\=\,\:\<\>\&]\s*$/.test(textBefore);
+    }
+
     private onMouseDown = (e: MouseEvent) => {
         if (e.button !== 0) return;
 
@@ -93,11 +111,16 @@ export class SelectionManager {
         // 1. Handling click when the floating cell editor is active
         if (td && this.editor.el.style.display === 'block') {
             if (this.editor.el.value.startsWith('=')) {
-                const cellId = td.getAttribute('data-cell-id');
-                if (cellId) {
-                    this.handleFormulaClick(e, cellId, this.editor.el);
+                if (this.shouldInjectCellReference(this.editor.el)) {
+                    const cellId = td.getAttribute('data-cell-id');
+                    if (cellId) {
+                        this.handleFormulaClick(e, cellId, this.editor.el);
+                    }
+                    return; // Keep focus in editor
+                } else {
+                    // Formula is complete/closed. Commit it to allow standard selection to proceed.
+                    this.editor.commitAndClose();
                 }
-                return;
             } else {
                 this.editor.commitAndClose();
             }
@@ -109,7 +132,13 @@ export class SelectionManager {
             const cellId = td.getAttribute('data-cell-id');
             if (cellId) {
                 if (activeEl.value.startsWith('=')) {
-                    this.handleFormulaClick(e, cellId, activeEl);
+                    if (this.shouldInjectCellReference(activeEl)) {
+                        this.handleFormulaClick(e, cellId, activeEl);
+                        return;
+                    } else {
+                        // Formula is complete. Drop focus so the table can natively select the clicked cell.
+                        activeEl.blur();
+                    }
                 } else {
                     e.preventDefault();
                     const start = activeEl.selectionStart ?? activeEl.value.length;
@@ -118,9 +147,9 @@ export class SelectionManager {
                     activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
                     activeEl.focus();
                     activeEl.dispatchEvent(new Event('input'));
+                    return;
                 }
             }
-            return;
         }
 
         if (!td) {
