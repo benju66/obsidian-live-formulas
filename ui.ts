@@ -40,6 +40,21 @@ export const renderTableUI = (
     } | null = null;
     let fillDragState: { sourceCellId: string; currentCellId: string; applyFill: () => void } | null = null;
 
+    let suppressNextShiftClick = false;
+    let shiftDragMoveHandler: ((ev: MouseEvent) => void) | null = null;
+    let shiftDragUpHandler: (() => void) | null = null;
+
+    const detachShiftDragListeners = () => {
+        if (shiftDragMoveHandler) {
+            window.removeEventListener('mousemove', shiftDragMoveHandler, true);
+            shiftDragMoveHandler = null;
+        }
+        if (shiftDragUpHandler) {
+            window.removeEventListener('mouseup', shiftDragUpHandler, true);
+            shiftDragUpHandler = null;
+        }
+    };
+
     const handleMouseUp = () => {
         if (formulaDragState) formulaDragState = null;
         if (fillDragState) {
@@ -51,6 +66,7 @@ export const renderTableUI = (
 
     const destroy = () => {
         window.removeEventListener('mouseup', handleMouseUp);
+        detachShiftDragListeners();
     };
 
     let isRerendering = false;
@@ -99,6 +115,33 @@ export const renderTableUI = (
 
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
+
+    const applyRangeSelection = (anchorId: string, endCellId: string, clearFirst: boolean) => {
+        if (clearFirst) {
+            selectedCellIds.clear();
+            wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
+        }
+        const match1 = anchorId.match(/^([A-Z]+)(\d+)$/i);
+        const match2 = endCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match1 || !match2) return;
+        const c1 = lettersToColumnIndex(match1[1]);
+        const r1 = parseInt(match1[2], 10);
+        const c2 = lettersToColumnIndex(match2[1]);
+        const r2 = parseInt(match2[2], 10);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+        for (let c = minC; c <= maxC; c++) {
+            const colStr = columnIndexToLetters(c);
+            for (let r = minR; r <= maxR; r++) {
+                const id = `${colStr}${r}`;
+                selectedCellIds.add(id);
+                const el = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+                if (el) el.classList.add('is-selected');
+            }
+        }
+    };
 
     const clearFormulaHighlights = () => {
         wrapper.querySelectorAll('.is-formula-reference').forEach((el) => el.classList.remove('is-formula-reference'));
@@ -781,6 +824,7 @@ export const renderTableUI = (
             }
 
             if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                if (e.shiftKey && document.activeElement === ta) return;
                 e.preventDefault();
             }
         },
@@ -889,6 +933,66 @@ export const renderTableUI = (
         applyFormulaHighlight(c1, c2, r1, r2);
     });
 
+    wrapper.addEventListener(
+        'mousedown',
+        (e: MouseEvent) => {
+            if (!e.shiftKey) return;
+            if (e.ctrlKey || e.metaKey) return;
+            if (fillDragState) return;
+            if (formulaDragState) return;
+            if (justInjectedFormula) return;
+
+            const td = (e.target as HTMLElement).closest?.('.live-formula-cell') as HTMLElement | null;
+            if (!td || !table.contains(td)) return;
+            const cellInput = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!cellInput) return;
+            const cellId = cellInput.getAttribute('data-cell-id');
+            if (!cellId) return;
+
+            if (
+                document.activeElement === cellInput &&
+                lastActiveCellId === cellId &&
+                (e.target as HTMLElement).closest('textarea') === cellInput
+            ) {
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const anchorId = lastActiveCellId || cellId;
+            const clearFirst = !e.ctrlKey && !e.metaKey;
+
+            applyRangeSelection(anchorId, cellId, clearFirst);
+            if (!lastActiveCellId) lastActiveCellId = cellId;
+
+            detachShiftDragListeners();
+
+            const onMove = (ev: MouseEvent) => {
+                if (ev.buttons !== 1) return;
+                const el = document.elementFromPoint(ev.clientX, ev.clientY);
+                if (!el) return;
+                const td2 = el.closest('.live-formula-cell') as HTMLElement | null;
+                if (!td2 || !table.contains(td2)) return;
+                const input2 = td2.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+                const endId = input2?.getAttribute('data-cell-id');
+                if (!endId) return;
+                applyRangeSelection(anchorId, endId, clearFirst);
+            };
+
+            const onUp = () => {
+                suppressNextShiftClick = true;
+                detachShiftDragListeners();
+            };
+
+            shiftDragMoveHandler = onMove;
+            shiftDragUpHandler = onUp;
+            window.addEventListener('mousemove', onMove, true);
+            window.addEventListener('mouseup', onUp, true);
+        },
+        true
+    );
+
     wrapper.addEventListener('click', (e: MouseEvent) => {
         if (justInjectedFormula) {
             justInjectedFormula = false;
@@ -896,50 +1000,31 @@ export const renderTableUI = (
         }
 
         const target = e.target as HTMLElement;
-        const cellInput = target.closest('textarea[data-cell-id]') as HTMLTextAreaElement;
+        const td = target.closest('.live-formula-cell') as HTMLElement | null;
+        if (!td) return;
+
+        const cellInput = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
         if (!cellInput) return;
 
         const cellId = cellInput.getAttribute('data-cell-id');
         if (!cellId) return;
 
         if (e.shiftKey) {
+            if (suppressNextShiftClick) {
+                suppressNextShiftClick = false;
+                return;
+            }
+            if (document.activeElement === cellInput && lastActiveCellId === cellId) {
+                return;
+            }
+
             e.preventDefault();
             e.stopPropagation();
 
             const anchorId = lastActiveCellId || cellId;
+            const clearFirst = !e.ctrlKey && !e.metaKey;
+            applyRangeSelection(anchorId, cellId, clearFirst);
 
-            if (!e.ctrlKey && !e.metaKey) {
-                selectedCellIds.clear();
-                wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
-            }
-
-            const match1 = anchorId.match(/^([A-Z]+)(\d+)$/i);
-            const match2 = cellId.match(/^([A-Z]+)(\d+)$/i);
-
-            if (match1 && match2) {
-                const c1 = lettersToColumnIndex(match1[1]);
-                const r1 = parseInt(match1[2], 10);
-                const c2 = lettersToColumnIndex(match2[1]);
-                const r2 = parseInt(match2[2], 10);
-
-                const minC = Math.min(c1, c2);
-                const maxC = Math.max(c1, c2);
-                const minR = Math.min(r1, r2);
-                const maxR = Math.max(r1, r2);
-
-                for (let c = minC; c <= maxC; c++) {
-                    const colStr = columnIndexToLetters(c);
-                    for (let r = minR; r <= maxR; r++) {
-                        const id = `${colStr}${r}`;
-                        selectedCellIds.add(id);
-
-                        const el = wrapper.querySelector(`textarea[data-cell-id="${id}"]`);
-                        if (el) el.classList.add('is-selected');
-                    }
-                }
-            }
-
-            cellInput.blur();
             if (!lastActiveCellId) lastActiveCellId = cellId;
         } else if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
