@@ -52,7 +52,9 @@ export const renderTableUI = (
         updatedCellIds.forEach((id) => refreshCellDisplay(id));
         saveStateToFile();
     });
-    const selectionManager = new SelectionManager(wrapper);
+    const selectionManager = new SelectionManager(wrapper, state, cellEditor, () => {
+        saveStateToFile();
+    });
 
     // 3. Draw the Display Grid (Plain HTML TDs, no Textareas)
     if (settings.showHeaders) {
