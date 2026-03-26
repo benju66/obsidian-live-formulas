@@ -1,23 +1,26 @@
 import { TableState, CellData, columnIndexToLetters, lettersToColumnIndex } from './tableState';
 
 /**
- * Updates cell references in a formula when a row or column is inserted or deleted.
- * e.g. shiftFormulaReferences("=SUM(A1:B2)", 'row', 2, 1) -> "=SUM(A2:B3)"
+ * Updates cell references in a formula when a row or column is inserted or deleted,
+ * respecting Excel-style absolute anchors ($A$1, $A1, A$1).
  */
-const shiftFormulaReferences = (formula: string, type: 'row' | 'col', threshold: number, amount: number): string => {
-    return formula.replace(/\b([A-Z]+)(\d+)\b/gi, (match, colStr, rowStr) => {
+export const shiftFormulaReferences = (formula: string, type: 'row' | 'col', threshold: number, amount: number): string => {
+    return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
         let c = lettersToColumnIndex(colStr.toUpperCase());
         let r = parseInt(rowStr, 10);
 
-        if (type === 'row' && r >= threshold) {
+        const isColAbsolute = colAnchor === '$';
+        const isRowAbsolute = rowAnchor === '$';
+
+        if (type === 'row' && r >= threshold && !isRowAbsolute) {
             r += amount;
-        } else if (type === 'col' && c >= threshold) {
+        } else if (type === 'col' && c >= threshold && !isColAbsolute) {
             c += amount;
         }
 
         if (r < 1 || c < 1) return '#REF!';
 
-        return `${columnIndexToLetters(c)}${r}`;
+        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
     });
 };
 
@@ -140,5 +143,41 @@ export const deleteCol = (state: TableState, columnIndex: number) => {
         }
     }
 
+    state.markDirty();
+};
+
+/**
+ * Copies a formula from a source cell to a target cell,
+ * incrementing relative references by the column/row offset between cells.
+ */
+export const fillFormulaToRange = (state: TableState, sourceCellId: string, targetCellId: string) => {
+    const sourceCell = state.getCell(sourceCellId);
+    if (!sourceCell || !sourceCell.formula) return;
+
+    const match1 = sourceCellId.match(/^([A-Z]+)(\d+)$/i);
+    const match2 = targetCellId.match(/^([A-Z]+)(\d+)$/i);
+    if (!match1 || !match2) return;
+
+    const c1 = lettersToColumnIndex(match1[1]);
+    const r1 = parseInt(match1[2], 10);
+    const c2 = lettersToColumnIndex(match2[1]);
+    const r2 = parseInt(match2[2], 10);
+
+    const colOffset = c2 - c1;
+    const rowOffset = r2 - r1;
+
+    const newFormula = sourceCell.formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
+        let c = lettersToColumnIndex(colStr.toUpperCase());
+        let r = parseInt(rowStr, 10);
+
+        if (colAnchor !== '$') c += colOffset;
+        if (rowAnchor !== '$') r += rowOffset;
+
+        if (r < 1 || c < 1) return '#REF!';
+        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
+    });
+
+    const formatObj = { ...(sourceCell.format || {}) };
+    state.setCell(targetCellId, { value: newFormula, formula: newFormula, format: formatObj });
     state.markDirty();
 };

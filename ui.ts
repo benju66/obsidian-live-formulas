@@ -15,9 +15,15 @@ let formulaDragState: {
     endPos: number;
 } | null = null;
 
+let fillDragState: { sourceCellId: string; currentCellId: string; applyFill: () => void } | null = null;
+
 if (typeof window !== 'undefined') {
     window.addEventListener('mouseup', () => {
         if (formulaDragState) formulaDragState = null;
+        if (fillDragState) {
+            fillDragState.applyFill();
+            fillDragState = null;
+        }
     });
 }
 
@@ -408,6 +414,51 @@ export const renderTableUI = (
 
                 input.classList.add('is-linked-focus');
                 td.classList.add('is-linked-focus');
+
+                wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
+
+                if (typeof rawData === 'string' && rawData.startsWith('=')) {
+                    const dragHandle = td.createEl('div', { cls: 'live-formula-drag-handle' });
+                    dragHandle.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        fillDragState = {
+                            sourceCellId: cellId,
+                            currentCellId: cellId,
+                            applyFill: () => {
+                                wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
+                                if (!fillDragState) return;
+
+                                const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
+                                const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
+                                if (!sMatch || !cMatch) return;
+
+                                const c1 = lettersToColumnIndex(sMatch[1]);
+                                const r1 = parseInt(sMatch[2], 10);
+                                const c2 = lettersToColumnIndex(cMatch[1]);
+                                const r2 = parseInt(cMatch[2], 10);
+
+                                const minC = Math.min(c1, c2);
+                                const maxC = Math.max(c1, c2);
+                                const minR = Math.min(r1, r2);
+                                const maxR = Math.max(r1, r2);
+
+                                for (let c = minC; c <= maxC; c++) {
+                                    const colStr = columnIndexToLetters(c);
+                                    for (let r = minR; r <= maxR; r++) {
+                                        const targetId = `${colStr}${r}`;
+                                        if (targetId !== fillDragState.sourceCellId) {
+                                            Actions.fillFormulaToRange(state, fillDragState.sourceCellId, targetId);
+                                        }
+                                    }
+                                }
+                                saveStateToFile();
+                                rerender();
+                            },
+                        };
+                    });
+                }
+
                 toolbar?.setActiveCell(input, cellId);
 
                 let editValue = rawData === undefined || rawData === null ? '' : rawData.toString();
@@ -686,6 +737,38 @@ export const renderTableUI = (
     );
 
     tableScroll.addEventListener('mouseover', (e: MouseEvent) => {
+        if (fillDragState && e.buttons === 1) {
+            const t = e.target as HTMLElement;
+            const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!ta || !table.contains(ta)) return;
+
+            const hoverCellId = ta.getAttribute('data-cell-id');
+            if (!hoverCellId) return;
+
+            fillDragState.currentCellId = hoverCellId;
+
+            wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
+
+            const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
+            const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
+            if (sMatch && cMatch) {
+                const c1 = lettersToColumnIndex(sMatch[1]);
+                const r1 = parseInt(sMatch[2], 10);
+                const c2 = lettersToColumnIndex(cMatch[1]);
+                const r2 = parseInt(cMatch[2], 10);
+
+                for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+                    const colStr = columnIndexToLetters(c);
+                    for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+                        const id = `${colStr}${r}`;
+                        const targetEl = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+                        if (targetEl && id !== fillDragState.sourceCellId) targetEl.classList.add('is-fill-highlight');
+                    }
+                }
+            }
+            return;
+        }
+
         if (!formulaDragState) return;
 
         if (e.buttons !== 1) {
