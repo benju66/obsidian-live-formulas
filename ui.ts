@@ -230,6 +230,7 @@ export const renderTableUI = (
         }
 
         // 3. Save to state
+        state.saveSnapshot();
         if (typeof parsed === 'string' && parsed.startsWith('=')) {
             state.setCell(id, { value: parsed, formula: parsed, format: fmt });
         } else {
@@ -343,6 +344,7 @@ export const renderTableUI = (
                 selectedCellIds.size > 0 ? [...selectedCellIds] : tb.activeCellId && tb.activeInput ? [tb.activeCellId] : [];
             if (idList.length === 0) return;
 
+            state.saveSnapshot();
             for (const id of idList) {
                 applyToolbarFormatToCell(id, key, val);
             }
@@ -432,6 +434,7 @@ export const renderTableUI = (
                                 wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
                                 if (!fillDragState) return;
 
+                                state.saveSnapshot();
                                 const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
                                 const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
                                 if (!sMatch || !cMatch) return;
@@ -944,4 +947,48 @@ export const renderTableUI = (
             rerender();
         });
     }
+
+    wrapper.addEventListener('keydown', (e: KeyboardEvent) => {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+        if (cmdOrCtrl && (e.key === 'z' || e.key === 'Z')) {
+            const active = document.activeElement as HTMLTextAreaElement;
+
+            if (active && active.tagName === 'TEXTAREA') {
+                const id = active.getAttribute('data-cell-id');
+                if (id && active.value !== getDisplayStringForCell(id)) {
+                    return;
+                }
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.shiftKey) {
+                if (state.redo()) {
+                    saveStateToFile();
+                    rerender();
+                }
+            } else {
+                if (state.undo()) {
+                    saveStateToFile();
+                    rerender();
+                }
+            }
+        } else if (cmdOrCtrl && (e.key === 'y' || e.key === 'Y')) {
+            const active = document.activeElement as HTMLTextAreaElement;
+            if (active && active.tagName === 'TEXTAREA') {
+                const id = active.getAttribute('data-cell-id');
+                if (id && active.value !== getDisplayStringForCell(id)) return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+            if (state.redo()) {
+                saveStateToFile();
+                rerender();
+            }
+        }
+    });
 };

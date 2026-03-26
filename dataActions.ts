@@ -33,6 +33,7 @@ function cloneCell(c: CellData): CellData {
 }
 
 export const insertRow = (state: TableState, targetRow: number) => {
+    state.saveSnapshot();
     const cols = state.getColumnLetters();
     const next = new Map<string, CellData>();
 
@@ -62,6 +63,7 @@ export const insertRow = (state: TableState, targetRow: number) => {
 };
 
 export const deleteRow = (state: TableState, targetRow: number) => {
+    state.saveSnapshot();
     const next = new Map<string, CellData>();
 
     for (const [key, cell] of state.cells) {
@@ -121,6 +123,7 @@ export const insertCol = (state: TableState, insertBeforeIndex: number, maxRow: 
 
 /** Delete the column at 1-based Excel index (1 = A). */
 export const deleteCol = (state: TableState, columnIndex: number) => {
+    state.saveSnapshot();
     const next = new Map<string, CellData>();
 
     for (const [key, cell] of state.cells) {
