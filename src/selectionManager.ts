@@ -29,6 +29,43 @@ export class SelectionManager {
         }
     }
 
+    private handleFormulaClick(e: MouseEvent, cellId: string, inputEl: HTMLInputElement | HTMLTextAreaElement) {
+        e.preventDefault();
+        const val = inputEl.value;
+        const start = inputEl.selectionStart ?? val.length;
+        const end = inputEl.selectionEnd ?? val.length;
+        let textBefore = val.substring(0, start);
+        const textAfter = val.substring(end);
+
+        // Handle Shift+Click (Range Selection)
+        if (e.shiftKey) {
+            // Check if the cursor is immediately after an existing cell or range (e.g., "A1" or "A1:B1")
+            const rangeMatch = textBefore.match(/([A-Z]+\d+)(?::[A-Z]+\d+)?$/i);
+            if (rangeMatch && rangeMatch.index !== undefined) {
+                const startCell = rangeMatch[1];
+                const injection = `${startCell}:${cellId}`;
+                textBefore = textBefore.substring(0, rangeMatch.index);
+
+                inputEl.value = textBefore + injection + textAfter;
+                inputEl.setSelectionRange(textBefore.length + injection.length, textBefore.length + injection.length);
+                inputEl.focus();
+                inputEl.dispatchEvent(new Event('input'));
+                return;
+            }
+        }
+
+        // Handle Normal/Ctrl Click (Single Cell Selection)
+        const prevChar = textBefore.charAt(textBefore.length - 1);
+        // We only need a comma if the previous char exists and is NOT an operator or bracket
+        const needsComma = !!prevChar && !['(', '=', '+', '-', '*', '/', ',', ':'].includes(prevChar);
+        const injection = needsComma ? `,${cellId}` : cellId;
+
+        inputEl.value = textBefore + injection + textAfter;
+        inputEl.setSelectionRange(textBefore.length + injection.length, textBefore.length + injection.length);
+        inputEl.focus();
+        inputEl.dispatchEvent(new Event('input'));
+    }
+
     constructor(
         private wrapper: HTMLElement,
         private state: TableState,
@@ -53,18 +90,12 @@ export class SelectionManager {
         const target = e.target as HTMLElement;
         const td = target.closest('.live-formula-cell') as HTMLElement;
 
+        // 1. Handling click when the floating cell editor is active
         if (td && this.editor.el.style.display === 'block') {
             if (this.editor.el.value.startsWith('=')) {
                 const cellId = td.getAttribute('data-cell-id');
                 if (cellId) {
-                    e.preventDefault();
-                    const val = this.editor.el.value;
-                    const prevChar = val.charAt((this.editor.el.selectionStart ?? val.length) - 1);
-                    const needsComma =
-                        e.ctrlKey ||
-                        e.metaKey ||
-                        !!(prevChar && !['(', '=', '+', '-', '*', '/', ','].includes(prevChar));
-                    this.editor.injectReference(cellId, needsComma);
+                    this.handleFormulaClick(e, cellId, this.editor.el);
                 }
                 return;
             } else {
@@ -72,29 +103,21 @@ export class SelectionManager {
             }
         }
 
+        // 2. Handling click when the top formula bar is active
         const activeEl = document.activeElement as HTMLInputElement | null;
         if (td && activeEl && activeEl.classList.contains('live-formula-formula-bar-input')) {
             const cellId = td.getAttribute('data-cell-id');
             if (cellId) {
-                e.preventDefault();
                 if (activeEl.value.startsWith('=')) {
-                    const prevChar = activeEl.value.charAt((activeEl.selectionStart ?? activeEl.value.length) - 1);
-                    const needsComma =
-                        e.ctrlKey ||
-                        e.metaKey ||
-                        !!(prevChar && !['(', '=', '+', '-', '*', '/', ','].includes(prevChar));
-                    const injection = needsComma ? `,${cellId}` : cellId;
-                    const start = activeEl.selectionStart ?? activeEl.value.length;
-                    const end = activeEl.selectionEnd ?? activeEl.value.length;
-                    activeEl.value = activeEl.value.substring(0, start) + injection + activeEl.value.substring(end);
-                    activeEl.setSelectionRange(start + injection.length, start + injection.length);
-                    activeEl.focus();
+                    this.handleFormulaClick(e, cellId, activeEl);
                 } else {
+                    e.preventDefault();
                     const start = activeEl.selectionStart ?? activeEl.value.length;
                     const end = activeEl.selectionEnd ?? activeEl.value.length;
                     activeEl.value = activeEl.value.substring(0, start) + cellId + activeEl.value.substring(end);
                     activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
                     activeEl.focus();
+                    activeEl.dispatchEvent(new Event('input'));
                 }
             }
             return;
