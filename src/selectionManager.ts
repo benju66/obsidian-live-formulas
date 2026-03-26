@@ -2,10 +2,20 @@ import { TableState, lettersToColumnIndex, columnIndexToLetters } from '../table
 import { CellEditor } from './cellEditor';
 
 export class SelectionManager {
+    public onSelectionChange: ((activeId: string | null) => void) | null = null;
+
     private selectedIds = new Set<string>();
     private activeCellId: string | null = null;
     private isDragging = false;
     private startDragId: string | null = null;
+
+    public getActiveCellId() {
+        return this.activeCellId;
+    }
+
+    public getSelectedIds() {
+        return Array.from(this.selectedIds);
+    }
 
     constructor(
         private wrapper: HTMLElement,
@@ -55,6 +65,7 @@ export class SelectionManager {
         } else {
             this.clearSelection();
             this.activeCellId = cellId;
+            this.onSelectionChange?.(this.activeCellId);
             this.selectedIds.add(cellId);
             this.renderSelection();
 
@@ -109,6 +120,7 @@ export class SelectionManager {
     private clearSelection() {
         this.selectedIds.clear();
         this.activeCellId = null;
+        this.onSelectionChange?.(null);
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
     }
 
@@ -183,6 +195,7 @@ export class SelectionManager {
                 } else {
                     this.clearSelection();
                     this.activeCellId = newId;
+                    this.onSelectionChange?.(this.activeCellId);
                     this.startDragId = newId;
                     this.selectedIds.add(newId);
                     this.renderSelection();

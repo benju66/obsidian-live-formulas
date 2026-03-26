@@ -1,6 +1,9 @@
+import { Menu } from 'obsidian';
 import { MathEngine } from './math';
+import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
-import { TableState } from './tableState';
+import { TableState, lettersToColumnIndex } from './tableState';
+import * as Actions from './dataActions';
 import { CellEditor } from './src/cellEditor';
 import { SelectionManager } from './src/selectionManager';
 
@@ -17,6 +20,12 @@ export const renderTableUI = (
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
 
+    const rerender = () => {
+        if (destroyRef) destroyRef.current();
+        el.empty();
+        renderTableUI(el, state, settings, saveStateToFile, toggleHeaders, persistPluginSettings, destroyRef);
+    };
+
     // 1. DOM Setup
     const wrapper = el.createEl('div', { cls: 'live-formula-wrapper' });
     const container = wrapper.createEl('div', { cls: 'live-formula-container' });
@@ -25,27 +34,52 @@ export const renderTableUI = (
     const formulaBarWrapper = container.createEl('div', { cls: 'live-formula-formula-bar' });
     formulaBarWrapper.createEl('span', { text: 'fx', cls: 'live-formula-formula-bar-label' });
     const formulaBarInput = formulaBarWrapper.createEl('input', { type: 'text', cls: 'live-formula-formula-bar-input' });
+    formulaBarInput.disabled = true;
 
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
-    // UI Refresher: Updates a specific <td> element without rebuilding the table
     const refreshCellDisplay = (id: string) => {
         const td = wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
         if (!td) return;
 
         const cell = state.getCell(id);
+        const fmt = cell?.format || {};
         const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
-        let displayValue = raw === undefined || raw === null ? '' : raw.toString();
+        let out = raw === undefined || raw === null ? '' : raw.toString();
+        let num: number | null = null;
 
         if (typeof raw === 'string' && raw.startsWith('=')) {
             const result = engine.evaluateFormula(raw);
-            displayValue = typeof result === 'string' ? result : result?.toString() || '';
-        } else if (typeof raw === 'number') {
-            displayValue = raw.toString();
+            if (typeof result === 'string') out = result;
+            else num = result;
+            td.classList.add('live-formula-cell--formula');
+        } else {
+            if (typeof raw === 'number') num = raw;
+            td.classList.remove('live-formula-cell--formula');
         }
 
-        td.textContent = displayValue;
+        if (num !== null) {
+            let decimals = fmt.decimals;
+            if (decimals === undefined) decimals = fmt.type === 'currency' ? 2 : undefined;
+            const opts = decimals !== undefined ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals } : {};
+
+            if (fmt.type === 'percent') out = `${(num * 100).toLocaleString('en-US', opts)}%`;
+            else if (fmt.type === 'currency') {
+                const fNum = Math.abs(num).toLocaleString('en-US', opts);
+                out =
+                    num < 0
+                        ? settings.accountingNegatives
+                            ? `($${fNum})`
+                            : `-$${fNum}`
+                        : `${settings.currencySymbol || '$'}${fNum}`;
+            } else out = num.toLocaleString('en-US', opts);
+        }
+
+        td.textContent = out;
+        td.style.textAlign = fmt.align || 'left';
+        td.style.fontWeight = fmt.bold ? 'bold' : 'normal';
+        td.style.color = out.startsWith('#') ? 'var(--text-error)' : '';
     };
 
     const cellEditor = new CellEditor(wrapper, state, engine, (updatedCellIds) => {
@@ -71,23 +105,62 @@ export const renderTableUI = (
 
         for (const c of cols) {
             const cellId = `${c}${r}`;
-            const cell = state.getCell(cellId);
 
-            // Calculate Display Value
-            const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
-            let displayValue = raw === undefined || raw === null ? '' : raw.toString();
-            if (typeof raw === 'string' && raw.startsWith('=')) {
-                const result = engine.evaluateFormula(raw);
-                displayValue = typeof result === 'string' ? result : result?.toString() || '';
-            } else if (typeof raw === 'number') {
-                displayValue = raw.toString();
-            }
-
-            // Create Plain Display Cell
-            tr.createEl('td', {
+            const td = tr.createEl('td', {
                 cls: 'live-formula-cell',
                 attr: { 'data-cell-id': cellId },
-                text: displayValue,
+            });
+
+            refreshCellDisplay(cellId);
+
+            td.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const colIdx = lettersToColumnIndex(c);
+                const menu = new Menu();
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Above').onClick(() => {
+                        Actions.insertRow(state, r);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Below').onClick(() => {
+                        Actions.insertRow(state, r + 1);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Row').onClick(() => {
+                        Actions.deleteRow(state, r);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.addSeparator();
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Left').onClick(() => {
+                        Actions.insertCol(state, colIdx, rows);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Right').onClick(() => {
+                        Actions.insertCol(state, colIdx + 1, rows);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Column').onClick(() => {
+                        Actions.deleteCol(state, colIdx);
+                        saveStateToFile();
+                        rerender();
+                    })
+                );
+                menu.showAtMouseEvent(e);
             });
         }
     }
@@ -96,6 +169,88 @@ export const renderTableUI = (
         cellEditor.destroy();
         selectionManager.destroy();
     };
+
+    selectionManager.onSelectionChange = (activeId) => {
+        if (!activeId) {
+            formulaBarInput.value = '';
+            formulaBarInput.disabled = true;
+            return;
+        }
+        formulaBarInput.disabled = false;
+        const cell = state.getCell(activeId);
+        const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+        formulaBarInput.value = raw === undefined || raw === null ? '' : raw.toString();
+    };
+
+    formulaBarInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const activeId = selectionManager.getActiveCellId();
+            if (!activeId) return;
+
+            const newValue = formulaBarInput.value.trim();
+            const cell = state.ensureCell(activeId);
+
+            let parsed: string | number = newValue;
+            if (newValue !== '' && !newValue.startsWith('=')) {
+                const asNum = Number(newValue.replace(/,/g, ''));
+                if (!isNaN(asNum)) parsed = asNum;
+            }
+
+            if (typeof parsed === 'string' && parsed.startsWith('=')) {
+                cell.value = parsed;
+                cell.formula = parsed;
+            } else {
+                cell.value = parsed;
+                cell.formula = undefined;
+            }
+
+            state.setCell(activeId, cell);
+            state.markDirty();
+
+            const { updated, cyclic } = engine.updateCellAndDependents(activeId);
+            const cellsToRefresh = cyclic ? [activeId] : updated.length > 0 ? updated : [activeId];
+            cellsToRefresh.forEach((id) => refreshCellDisplay(id));
+            saveStateToFile();
+            wrapper.focus();
+        }
+    });
+
+    if (settings.showToolbar) {
+        const tb = new TableToolbar(container, (key, val) => {
+            if (key === 'toggleHeaders') {
+                if (toggleHeaders) void toggleHeaders();
+                return;
+            }
+
+            const ids = selectionManager.getSelectedIds();
+            if (ids.length === 0) return;
+
+            for (const id of ids) {
+                const cell = state.ensureCell(id);
+                if (!cell.format) cell.format = {};
+
+                if (key === 'type') {
+                    cell.format.type = cell.format.type === val ? 'plain' : val;
+                } else if (key === 'decimals') {
+                    let dec = cell.format.decimals;
+                    if (dec === undefined) dec = cell.format.type === 'currency' ? 2 : 0;
+                    if (val === 'inc') dec++;
+                    if (val === 'dec' && dec > 0) dec--;
+                    cell.format.decimals = dec;
+                } else {
+                    (cell.format as Record<string, unknown>)[key] =
+                        (cell.format as Record<string, unknown>)[key] === val ? null : val;
+                }
+                state.setCell(id, cell);
+                refreshCellDisplay(id);
+            }
+            state.markDirty();
+            saveStateToFile();
+            wrapper.focus();
+        });
+        container.insertBefore(tb.el, tableScroll);
+    }
 
     if (destroyRef) destroyRef.current = destroy;
     return { destroy };
