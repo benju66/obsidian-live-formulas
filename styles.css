@@ -125,6 +125,10 @@
     color: var(--text-normal);
 }
 
+.live-formula-cell:not(.is-linked-focus) .live-formula-cell-input {
+    pointer-events: none;
+}
+
 .live-formula-cell.is-linked-focus {
     position: relative;
     box-shadow: inset 0 0 0 2px var(--interactive-accent);

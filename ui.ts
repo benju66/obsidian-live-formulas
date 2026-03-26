@@ -39,8 +39,10 @@ export const renderTableUI = (
         endPos: number;
     } | null = null;
     let fillDragState: { sourceCellId: string; currentCellId: string; applyFill: () => void } | null = null;
+    let bulkSelectDragState: { startCellId: string; currentCellId: string } | null = null;
 
     let suppressNextShiftClick = false;
+    let suppressNextBulkSelectClick = false;
     let shiftDragMoveHandler: ((ev: MouseEvent) => void) | null = null;
     let shiftDragUpHandler: (() => void) | null = null;
 
@@ -61,6 +63,11 @@ export const renderTableUI = (
             fillDragState.applyFill();
             fillDragState = null;
         }
+        if (bulkSelectDragState) {
+            const { startCellId, currentCellId } = bulkSelectDragState;
+            bulkSelectDragState = null;
+            if (startCellId !== currentCellId) suppressNextBulkSelectClick = true;
+        }
     };
     window.addEventListener('mouseup', handleMouseUp);
 
@@ -78,6 +85,7 @@ export const renderTableUI = (
         destroy();
         formulaDragState = null;
         fillDragState = null;
+        bulkSelectDragState = null;
         justInjectedFormula = false;
         state.clearDirty();
         el.empty();
@@ -683,7 +691,7 @@ export const renderTableUI = (
                 }
             });
 
-            input.addEventListener('contextmenu', (e) => {
+            td.addEventListener('contextmenu', (e) => {
                 if (e.shiftKey) {
                     e.stopPropagation();
                     return;
@@ -744,8 +752,10 @@ export const renderTableUI = (
         'mousedown',
         (e: MouseEvent) => {
             const t = e.target as HTMLElement;
-            const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
-            if (!ta || !table.contains(ta)) return;
+            const td = t.closest?.('.live-formula-cell') as HTMLElement | null;
+            if (!td || !table.contains(td)) return;
+            const ta = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!ta) return;
 
             const cellId = ta.getAttribute('data-cell-id');
             if (!cellId) return;
@@ -826,25 +836,25 @@ export const renderTableUI = (
             if (e.ctrlKey || e.metaKey || e.shiftKey) {
                 if (e.shiftKey && document.activeElement === ta) return;
                 e.preventDefault();
+            } else if (e.button === 0 && document.activeElement !== ta) {
+                bulkSelectDragState = { startCellId: cellId, currentCellId: cellId };
             }
         },
         true
     );
 
     tableScroll.addEventListener('mouseover', (e: MouseEvent) => {
+        // 1. Drag-to-Fill (The blue square)
         if (fillDragState && e.buttons === 1) {
             const t = e.target as HTMLElement;
             const td = t.closest('.live-formula-cell') as HTMLElement | null;
             if (!td || !table.contains(td)) return;
-
-            const ta = td.querySelector('textarea[data-cell-id]');
+            const ta = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
             if (!ta) return;
-
             const hoverCellId = ta.getAttribute('data-cell-id');
             if (!hoverCellId) return;
 
             fillDragState.currentCellId = hoverCellId;
-
             wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
 
             const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
@@ -854,7 +864,6 @@ export const renderTableUI = (
                 const r1 = parseInt(sMatch[2], 10);
                 const c2 = lettersToColumnIndex(cMatch[1]);
                 const r2 = parseInt(cMatch[2], 10);
-
                 for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
                     const colStr = columnIndexToLetters(c);
                     for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
@@ -867,70 +876,103 @@ export const renderTableUI = (
             return;
         }
 
-        if (!formulaDragState) return;
+        // 2. Click & Drag Bulk Selection (Excel style)
+        if (bulkSelectDragState && e.buttons === 1) {
+            const t = e.target as HTMLElement;
+            const td = t.closest('.live-formula-cell') as HTMLElement | null;
+            if (!td || !table.contains(td)) return;
+            const ta = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!ta) return;
 
-        if (e.buttons !== 1) {
-            formulaDragState = null;
+            const hoverCellId = ta.getAttribute('data-cell-id');
+            if (!hoverCellId) return;
+
+            if (bulkSelectDragState.currentCellId !== hoverCellId) {
+                bulkSelectDragState.currentCellId = hoverCellId;
+
+                if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'TEXTAREA') {
+                    document.activeElement.blur();
+                }
+
+                wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
+                selectedCellIds.clear();
+
+                const match1 = bulkSelectDragState.startCellId.match(/^([A-Z]+)(\d+)$/i);
+                const match2 = bulkSelectDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
+                if (match1 && match2) {
+                    const c1 = lettersToColumnIndex(match1[1]);
+                    const r1 = parseInt(match1[2], 10);
+                    const c2 = lettersToColumnIndex(match2[1]);
+                    const r2 = parseInt(match2[2], 10);
+
+                    for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+                        const colStr = columnIndexToLetters(c);
+                        for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+                            const id = `${colStr}${r}`;
+                            selectedCellIds.add(id);
+                            const el = wrapper.querySelector(`textarea[data-cell-id="${CSS.escape(id)}"]`);
+                            if (el) el.classList.add('is-selected');
+                        }
+                    }
+                }
+                lastActiveCellId = bulkSelectDragState.startCellId;
+            }
             return;
         }
 
-        const t = e.target as HTMLElement;
-        const td = t.closest('.live-formula-cell') as HTMLElement | null;
-        if (!td || !table.contains(td)) return;
+        // 3. Formula Point Mode Selection
+        if (formulaDragState && e.buttons === 1) {
+            const t = e.target as HTMLElement;
+            const td = t.closest('.live-formula-cell') as HTMLElement | null;
+            if (!td || !table.contains(td)) return;
+            const ta = td.querySelector('textarea[data-cell-id]') as HTMLTextAreaElement | null;
+            if (!ta) return;
 
-        const ta = td.querySelector('textarea[data-cell-id]');
-        if (!ta) return;
+            const currentCellId = ta.getAttribute('data-cell-id');
+            if (!currentCellId) return;
 
-        const currentCellId = ta.getAttribute('data-cell-id');
-        if (!currentCellId) return;
+            const { activeInput, anchorCellId, startPos, endPos } = formulaDragState;
+            const match1 = anchorCellId.match(/^([A-Z]+)(\d+)$/i);
+            const match2 = currentCellId.match(/^([A-Z]+)(\d+)$/i);
+            if (!match1 || !match2) return;
 
-        const { activeInput, anchorCellId, startPos, endPos } = formulaDragState;
+            const c1 = lettersToColumnIndex(match1[1]);
+            const r1 = parseInt(match1[2], 10);
+            const c2 = lettersToColumnIndex(match2[1]);
+            const r2 = parseInt(match2[2], 10);
 
-        const match1 = anchorCellId.match(/^([A-Z]+)(\d+)$/i);
-        const match2 = currentCellId.match(/^([A-Z]+)(\d+)$/i);
-        if (!match1 || !match2) return;
+            const minC = columnIndexToLetters(Math.min(c1, c2));
+            const maxC = columnIndexToLetters(Math.max(c1, c2));
+            const minR = Math.min(r1, r2);
+            const maxR = Math.max(r1, r2);
 
-        const c1 = lettersToColumnIndex(match1[1]);
-        const r1 = parseInt(match1[2], 10);
-        const c2 = lettersToColumnIndex(match2[1]);
-        const r2 = parseInt(match2[2], 10);
+            const rangeText =
+                minC === maxC && minR === maxR ? `${minC}${minR}` : `${minC}${minR}:${maxC}${maxR}`;
 
-        const minC = columnIndexToLetters(Math.min(c1, c2));
-        const maxC = columnIndexToLetters(Math.max(c1, c2));
-        const minR = Math.min(r1, r2);
-        const maxR = Math.max(r1, r2);
+            const currentVal = activeInput.value;
+            const newVal = currentVal.substring(0, startPos) + rangeText + currentVal.substring(endPos);
+            activeInput.value = newVal;
 
-        let rangeText = '';
-        if (minC === maxC && minR === maxR) {
-            rangeText = `${minC}${minR}`;
-        } else {
-            rangeText = `${minC}${minR}:${maxC}${maxR}`;
+            const newEndPos = startPos + rangeText.length;
+            activeInput.setSelectionRange(newEndPos, newEndPos);
+            formulaDragState.endPos = newEndPos;
+
+            if (activeInput === formulaBarInput && formulaBarLink) {
+                formulaBarLink.input.value = newVal;
+                formulaBarLink.adjustHeight();
+            } else if (formulaBarLink) {
+                formulaBarInput.value = newVal;
+                formulaBarLink.adjustHeight();
+            }
+
+            if (formulaBarLink) {
+                const cellRef = state.ensureCell(formulaBarLink.cellId);
+                cellRef.value = newVal;
+                state.markDirty();
+            }
+
+            applyFormulaHighlight(c1, c2, r1, r2);
         }
-
-        const currentVal = activeInput.value;
-        const newVal = currentVal.substring(0, startPos) + rangeText + currentVal.substring(endPos);
-        activeInput.value = newVal;
-
-        const newEndPos = startPos + rangeText.length;
-        activeInput.setSelectionRange(newEndPos, newEndPos);
-
-        formulaDragState.endPos = newEndPos;
-
-        if (activeInput === formulaBarInput && formulaBarLink) {
-            formulaBarLink.input.value = newVal;
-            formulaBarLink.adjustHeight();
-        } else if (formulaBarLink) {
-            formulaBarInput.value = newVal;
-            formulaBarLink.adjustHeight();
-        }
-
-        if (formulaBarLink) {
-            const cellRef = state.ensureCell(formulaBarLink.cellId);
-            cellRef.value = newVal;
-            state.markDirty();
-        }
-
-        applyFormulaHighlight(c1, c2, r1, r2);
     });
 
     wrapper.addEventListener(
@@ -1049,6 +1091,10 @@ export const renderTableUI = (
             selectedCellIds.clear();
             wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected'));
             lastActiveCellId = cellId;
+            if (document.activeElement !== cellInput) {
+                cellInput.focus();
+                cellInput.setSelectionRange(cellInput.value.length, cellInput.value.length);
+            }
         }
     });
 
