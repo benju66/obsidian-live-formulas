@@ -23,8 +23,10 @@ function replaceBareCellRefs(expr: string): string {
             i = end + 2;
             continue;
         }
-        if (expr[i] === "'") {
-            const end = expr.indexOf("'", i + 1);
+        // Safely skip both single and double quoted strings
+        if (expr[i] === '"' || expr[i] === "'") {
+            const quote = expr[i];
+            const end = expr.indexOf(quote, i + 1);
             if (end === -1) {
                 result += expr.slice(i);
                 break;
@@ -33,19 +35,11 @@ function replaceBareCellRefs(expr: string): string {
             i = end + 1;
             continue;
         }
-        if (expr[i] === '"') {
-            const end = expr.indexOf('"', i + 1);
-            if (end === -1) {
-                result += expr.slice(i);
-                break;
-            }
-            result += expr.slice(i, end + 1);
-            i = end + 1;
-            continue;
-        }
-        const m = slice.match(/^([A-Z]+\d+)\b/);
+        // Match cell refs with optional $ anchors
+        const m = slice.match(/^(\$?[A-Z]+\$?\d+)\b/);
         if (m) {
-            result += `CELL('${m[1]}')`;
+            const clean = m[1].replace(/\$/g, '');
+            result += `CELL('${clean}')`;
             i += m[1].length;
         } else {
             result += expr[i];
@@ -62,23 +56,27 @@ function preprocessExcelRanges(body: string): string {
 
 /**
  * Convert a spreadsheet formula (=...) into a safe expr-eval expression using CELL('A1') lookups.
- * Preserves string literal case (masked before uppercase) and scientific notation via mask/unmask.
+ * SUM ranges expand before range quoting; preserves string case (masked before uppercase) and scientific notation.
  */
 export function formulaToExpr(formula: string): string {
     const raw = formula.trim();
     let body = raw.startsWith('=') ? raw.slice(1) : raw;
-    body = preprocessExcelRanges(body);
 
+    // 1. Mask strings BEFORE toUpperCase() to preserve case-sensitivity
     const stringTokens: string[] = [];
     body = body.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (match) => {
         stringTokens.push(match);
         return `"__STR${stringTokens.length - 1}__"`;
     });
 
+    // 2. Mask scientific notation
     const { text: masked, tokens } = maskScientificNotation(body);
+
+    // 3. UpperCase execution
     let e = masked.toUpperCase();
 
-    e = e.replace(/SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/g, (_m, sc: string, sr: string, ec: string, er: string) => {
+    // 4. Expand SUM ranges (e.g. SUM(A1:B2) or SUM($A$1:B2))
+    e = e.replace(/SUM\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)/g, (_m, sc: string, sr: string, ec: string, er: string) => {
         const r1 = parseInt(sr, 10);
         const r2 = parseInt(er, 10);
         const c1 = lettersToColumnIndex(sc);
@@ -94,21 +92,31 @@ export function formulaToExpr(formula: string): string {
         return parts.length ? `SUM(${parts.join(',')})` : '0';
     });
 
+    // Expand SUM lists (e.g. SUM(A1, B2)) ignoring $ anchors
     e = e.replace(/SUM\(([^)]+)\)/g, (_match, inner: string) => {
         const parts = inner.split(',').map((s: string) => {
             const t = s.trim().toUpperCase();
-            if (/^[A-Z]+\d+$/.test(t)) return `CELL('${t}')`;
+            if (/^\$?[A-Z]+\$?\d+$/.test(t)) {
+                const clean = t.replace(/\$/g, '');
+                return `CELL('${clean}')`;
+            }
             return s.trim();
         });
         return `SUM(${parts.join(',')})`;
     });
 
+    // 5. Quote remaining ranges for VLOOKUP (e.g. A1:B10 -> 'A1:B10')
+    e = preprocessExcelRanges(e);
+
+    // 6. Replace bare cell references
     e = replaceBareCellRefs(e);
 
+    // 7. Unmask scientific
     if (tokens.length) {
         e = unmaskScientificNotation(e, tokens);
     }
 
+    // 8. Unmask strings back to their original case
     e = e.replace(/"__STR(\d+)__"/g, (_, i) => stringTokens[parseInt(i, 10)]);
 
     return e;
@@ -173,7 +181,7 @@ export class MathEngine {
             colIndex: number,
             _exactMatch = false
         ) => {
-            const cleanRange = String(rangeStr).replace(/['"]/g, '');
+            const cleanRange = String(rangeStr).replace(/['"]/g, '').replace(/\$/g, '');
             const match = cleanRange.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
             if (!match) return '#N/A';
 
