@@ -29,8 +29,29 @@ export const renderTableUI = (
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
-    // 2. Initialize Dual-Layer Controllers (To be fleshed out in Steps 2 & 3)
-    const cellEditor = new CellEditor(wrapper, state, engine);
+    // UI Refresher: Updates a specific <td> element without rebuilding the table
+    const refreshCellDisplay = (id: string) => {
+        const td = wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
+        if (!td) return;
+
+        const cell = state.getCell(id);
+        const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+        let displayValue = raw === undefined || raw === null ? '' : raw.toString();
+
+        if (typeof raw === 'string' && raw.startsWith('=')) {
+            const result = engine.evaluateFormula(raw);
+            displayValue = typeof result === 'string' ? result : result?.toString() || '';
+        } else if (typeof raw === 'number') {
+            displayValue = raw.toString();
+        }
+
+        td.textContent = displayValue;
+    };
+
+    const cellEditor = new CellEditor(wrapper, state, engine, (updatedCellIds) => {
+        updatedCellIds.forEach((id) => refreshCellDisplay(id));
+        saveStateToFile();
+    });
     const selectionManager = new SelectionManager(wrapper);
 
     // 3. Draw the Display Grid (Plain HTML TDs, no Textareas)
