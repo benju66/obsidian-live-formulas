@@ -59,6 +59,24 @@ export function extractCellRefsFromFormula(formula: string): string[] {
         }
     }
 
+    const bareRangeRe = /\b\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\b/g;
+    while ((m = bareRangeRe.exec(u))) {
+        const c1 = lettersToColumnIndex(m[1]);
+        const r1 = parseInt(m[2], 10);
+        const c2 = lettersToColumnIndex(m[3]);
+        const r2 = parseInt(m[4], 10);
+        const minC = Math.min(c1, c2);
+        const maxC = Math.max(c1, c2);
+        const minR = Math.min(r1, r2);
+        const maxR = Math.max(r1, r2);
+        for (let col = minC; col <= maxC; col++) {
+            const colStr = columnIndexToLetters(col);
+            for (let row = minR; row <= maxR; row++) {
+                refs.add(`${colStr}${row}`);
+            }
+        }
+    }
+
     const bareRe = /\b([A-Z]+\d+)\b/g;
     while ((m = bareRe.exec(u))) {
         refs.add(m[1]);

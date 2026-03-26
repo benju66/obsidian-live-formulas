@@ -1,5 +1,5 @@
 import { Parser } from 'expr-eval';
-import { type TableState, columnIndexToLetters, lettersToColumnIndex } from './tableState';
+import { TableState, lettersToColumnIndex, columnIndexToLetters } from './tableState';
 import {
     DependencyGraph,
     extractCellRefsFromFormula,
@@ -23,6 +23,16 @@ function replaceBareCellRefs(expr: string): string {
             i = end + 2;
             continue;
         }
+        if (expr[i] === '"') {
+            const end = expr.indexOf('"', i + 1);
+            if (end === -1) {
+                result += expr.slice(i);
+                break;
+            }
+            result += expr.slice(i, end + 1);
+            i = end + 1;
+            continue;
+        }
         const m = slice.match(/^([A-Z]+\d+)\b/);
         if (m) {
             result += `CELL('${m[1]}')`;
@@ -39,9 +49,15 @@ function replaceBareCellRefs(expr: string): string {
  * Convert a spreadsheet formula (=...) into a safe expr-eval expression using CELL('A1') lookups.
  * Preserves scientific notation via mask/unmask (no character stripping).
  */
+/** Wrap unquoted A1:B10 ranges in quotes so expr-eval does not treat `:` as an operator. */
+function preprocessExcelRanges(body: string): string {
+    return body.replace(/(?<!["'])\b(\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+)\b(?!["'])/gi, '"$1"');
+}
+
 export function formulaToExpr(formula: string): string {
     const raw = formula.trim();
-    const body = raw.startsWith('=') ? raw.slice(1) : raw;
+    let body = raw.startsWith('=') ? raw.slice(1) : raw;
+    body = preprocessExcelRanges(body);
     const { text: masked, tokens } = maskScientificNotation(body);
     let e = masked.toUpperCase();
 
@@ -129,6 +145,44 @@ export class MathEngine {
         this.parser.functions.NOW = () => {
             const d = new Date();
             return d.toISOString().slice(0, 16).replace('T', ' ');
+        };
+
+        // Lookup & Reference Functions
+        this.parser.functions.VLOOKUP = (
+            lookupValue: unknown,
+            rangeStr: string,
+            colIndex: number,
+            _exactMatch = false
+        ) => {
+            const cleanRange = String(rangeStr).replace(/['"]/g, '');
+            const match = cleanRange.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+            if (!match) return '#N/A';
+
+            const c1 = lettersToColumnIndex(match[1].toUpperCase());
+            const r1 = parseInt(match[2], 10);
+            const c2 = lettersToColumnIndex(match[3].toUpperCase());
+            const r2 = parseInt(match[4], 10);
+
+            const minC = Math.min(c1, c2);
+            const maxC = Math.max(c1, c2);
+            const minR = Math.min(r1, r2);
+            const maxR = Math.max(r1, r2);
+
+            if (colIndex < 1 || colIndex > maxC - minC + 1) return '#REF!';
+
+            const targetCol = minC + colIndex - 1;
+
+            const cellFn = this.parser.functions.CELL as (id: string) => unknown;
+            for (let r = minR; r <= maxR; r++) {
+                const searchCellId = `${columnIndexToLetters(minC)}${r}`;
+                const searchVal = cellFn(searchCellId);
+                if (searchVal == lookupValue) {
+                    const returnCellId = `${columnIndexToLetters(targetCol)}${r}`;
+                    return cellFn(returnCellId);
+                }
+            }
+
+            return '#N/A';
         };
     }
 
