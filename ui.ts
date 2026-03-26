@@ -739,8 +739,11 @@ export const renderTableUI = (
     tableScroll.addEventListener('mouseover', (e: MouseEvent) => {
         if (fillDragState && e.buttons === 1) {
             const t = e.target as HTMLElement;
-            const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
-            if (!ta || !table.contains(ta)) return;
+            const td = t.closest('.live-formula-cell') as HTMLElement | null;
+            if (!td || !table.contains(td)) return;
+
+            const ta = td.querySelector('textarea[data-cell-id]');
+            if (!ta) return;
 
             const hoverCellId = ta.getAttribute('data-cell-id');
             if (!hoverCellId) return;
@@ -777,8 +780,11 @@ export const renderTableUI = (
         }
 
         const t = e.target as HTMLElement;
-        const ta = t.closest?.('textarea[data-cell-id]') as HTMLTextAreaElement | null;
-        if (!ta || !table.contains(ta)) return;
+        const td = t.closest('.live-formula-cell') as HTMLElement | null;
+        if (!td || !table.contains(td)) return;
+
+        const ta = td.querySelector('textarea[data-cell-id]');
+        if (!ta) return;
 
         const currentCellId = ta.getAttribute('data-cell-id');
         if (!currentCellId) return;
