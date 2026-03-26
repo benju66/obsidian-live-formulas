@@ -1,4 +1,4 @@
-import { Menu } from 'obsidian';
+import { Menu, Notice } from 'obsidian';
 import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
@@ -123,6 +123,7 @@ export const renderTableUI = (
 
     const getDisplayStringForCell = (id: string): string => {
         const cell = state.getCell(id);
+        if (cell?.value === '#CYCLE!') return '#CYCLE!';
         const fmt = (cell?.format || {}) as CellData['format'];
         const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
         let out = raw === undefined || raw === null ? '' : raw.toString();
@@ -155,7 +156,11 @@ export const renderTableUI = (
             if (usePercent) {
                 out = `${(num * 100).toLocaleString('en-US', formatOptions)}%`;
             } else if (useCurrency) {
-                out = `${settings.currencySymbol || '$'}${num.toLocaleString('en-US', formatOptions)}`;
+                const formattedNum = Math.abs(num).toLocaleString('en-US', formatOptions);
+                out = `${settings.currencySymbol || '$'}${formattedNum}`;
+                if (num < 0) {
+                    out = settings.accountingNegatives ? `(${out})` : `-${out}`;
+                }
             } else {
                 out = num.toLocaleString('en-US', formatOptions);
             }
@@ -251,6 +256,9 @@ export const renderTableUI = (
             for (const cid of updated) {
                 if (cid !== id) refreshCellDisplay(cid);
             }
+        } else {
+            state.setCell(id, { value: '#CYCLE!', formula: parsed, format: fmt });
+            new Notice('Live Formulas: Cyclic dependency detected. Formula aborted.');
         }
 
         // 4. Update the active cell to its final evaluated display string (Fixes visual bugs)
@@ -438,47 +446,45 @@ export const renderTableUI = (
                 const freshFormat = (freshCell?.format || {}) as CellData['format'];
                 const freshRaw = freshCell !== undefined ? (freshCell.formula !== undefined ? freshCell.formula : freshCell.value) : '';
 
-                if (typeof freshRaw === 'string' && freshRaw.startsWith('=')) {
-                    const dragHandle = td.createEl('div', { cls: 'live-formula-drag-handle' });
-                    dragHandle.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        fillDragState = {
-                            sourceCellId: cellId,
-                            currentCellId: cellId,
-                            applyFill: () => {
-                                wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
-                                if (!fillDragState) return;
+                const dragHandle = td.createEl('div', { cls: 'live-formula-drag-handle' });
+                dragHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fillDragState = {
+                        sourceCellId: cellId,
+                        currentCellId: cellId,
+                        applyFill: () => {
+                            wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
+                            if (!fillDragState) return;
 
-                                const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
-                                const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
-                                if (!sMatch || !cMatch) return;
+                            const sMatch = fillDragState.sourceCellId.match(/^([A-Z]+)(\d+)$/i);
+                            const cMatch = fillDragState.currentCellId.match(/^([A-Z]+)(\d+)$/i);
+                            if (!sMatch || !cMatch) return;
 
-                                const c1 = lettersToColumnIndex(sMatch[1]);
-                                const r1 = parseInt(sMatch[2], 10);
-                                const c2 = lettersToColumnIndex(cMatch[1]);
-                                const r2 = parseInt(cMatch[2], 10);
+                            const c1 = lettersToColumnIndex(sMatch[1]);
+                            const r1 = parseInt(sMatch[2], 10);
+                            const c2 = lettersToColumnIndex(cMatch[1]);
+                            const r2 = parseInt(cMatch[2], 10);
 
-                                const minC = Math.min(c1, c2);
-                                const maxC = Math.max(c1, c2);
-                                const minR = Math.min(r1, r2);
-                                const maxR = Math.max(r1, r2);
+                            const minC = Math.min(c1, c2);
+                            const maxC = Math.max(c1, c2);
+                            const minR = Math.min(r1, r2);
+                            const maxR = Math.max(r1, r2);
 
-                                for (let c = minC; c <= maxC; c++) {
-                                    const colStr = columnIndexToLetters(c);
-                                    for (let r = minR; r <= maxR; r++) {
-                                        const targetId = `${colStr}${r}`;
-                                        if (targetId !== fillDragState.sourceCellId) {
-                                            Actions.fillFormulaToRange(state, fillDragState.sourceCellId, targetId);
-                                        }
+                            for (let c = minC; c <= maxC; c++) {
+                                const colStr = columnIndexToLetters(c);
+                                for (let r = minR; r <= maxR; r++) {
+                                    const targetId = `${colStr}${r}`;
+                                    if (targetId !== fillDragState.sourceCellId) {
+                                        Actions.fillFormulaToRange(state, fillDragState.sourceCellId, targetId);
                                     }
                                 }
-                                saveStateToFile();
-                                rerender();
-                            },
-                        };
-                    });
-                }
+                            }
+                            saveStateToFile();
+                            rerender();
+                        },
+                    };
+                });
 
                 toolbar?.setActiveCell(input, cellId);
 
@@ -566,6 +572,22 @@ export const renderTableUI = (
             });
 
             input.addEventListener('keydown', (e) => {
+                if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCellIds.size > 0) {
+                    e.preventDefault();
+                    for (const id of selectedCellIds) {
+                        const cell = state.getCell(id);
+                        state.setCell(id, {
+                            value: '',
+                            formula: undefined,
+                            format: cell?.format || {},
+                        });
+                        refreshCellDisplay(id);
+                    }
+                    state.markDirty();
+                    saveStateToFile();
+                    return;
+                }
+
                 let moveCol = c,
                     moveRow = r;
 
@@ -958,12 +980,14 @@ export const renderTableUI = (
 
         addColBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addColBtn.addEventListener('click', () => {
+            if (formulaBarLink) commitCellValue(formulaBarLink.input, formulaBarLink.cellId, formulaBarLink.adjustHeight);
             Actions.insertCol(state, state.maxCol + 1, rows);
             saveStateToFile();
             rerender();
         });
         addRowBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addRowBtn.addEventListener('click', () => {
+            if (formulaBarLink) commitCellValue(formulaBarLink.input, formulaBarLink.cellId, formulaBarLink.adjustHeight);
             Actions.insertRow(state, rows + 1);
             saveStateToFile();
             rerender();

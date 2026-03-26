@@ -152,7 +152,15 @@ export const deleteCol = (state: TableState, columnIndex: number) => {
  */
 export const fillFormulaToRange = (state: TableState, sourceCellId: string, targetCellId: string) => {
     const sourceCell = state.getCell(sourceCellId);
-    if (!sourceCell || !sourceCell.formula) return;
+    if (!sourceCell) return;
+
+    const formatObj = { ...(sourceCell.format || {}) };
+
+    if (!sourceCell.formula) {
+        state.setCell(targetCellId, { value: sourceCell.value, formula: undefined, format: formatObj });
+        state.markDirty();
+        return;
+    }
 
     const match1 = sourceCellId.match(/^([A-Z]+)(\d+)$/i);
     const match2 = targetCellId.match(/^([A-Z]+)(\d+)$/i);
@@ -177,7 +185,6 @@ export const fillFormulaToRange = (state: TableState, sourceCellId: string, targ
         return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
     });
 
-    const formatObj = { ...(sourceCell.format || {}) };
     state.setCell(targetCellId, { value: newFormula, formula: newFormula, format: formatObj });
     state.markDirty();
 };

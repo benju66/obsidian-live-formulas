@@ -105,6 +105,37 @@ export function formulaToExpr(formula: string): string {
         return `SUM(${parts.join(',')})`;
     });
 
+    // Expand AVERAGE/MIN/MAX/COUNT/COUNTA ranges (same cell grid as SUM)
+    e = e.replace(
+        /(AVERAGE|MIN|MAX|COUNT|COUNTA)\(\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)\)/g,
+        (_m, fn: string, sc: string, sr: string, ec: string, er: string) => {
+            const r1 = parseInt(sr, 10);
+            const r2 = parseInt(er, 10);
+            const c1 = lettersToColumnIndex(sc);
+            const c2 = lettersToColumnIndex(ec);
+            const parts: string[] = [];
+            for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+                const colStr = columnIndexToLetters(c);
+                for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+                    parts.push(`CELL('${colStr}${r}')`);
+                }
+            }
+            return parts.length ? `${fn}(${parts.join(',')})` : `${fn}(0)`;
+        }
+    );
+
+    e = e.replace(/(AVERAGE|MIN|MAX|COUNT|COUNTA)\(([^)]+)\)/g, (_match, fname: string, inner: string) => {
+        const parts = inner.split(',').map((s: string) => {
+            const t = s.trim().toUpperCase();
+            if (/^\$?[A-Z]+\$?\d+$/.test(t)) {
+                const clean = t.replace(/\$/g, '');
+                return `CELL('${clean}')`;
+            }
+            return s.trim();
+        });
+        return `${fname}(${parts.join(',')})`;
+    });
+
     // 5. Quote remaining ranges for VLOOKUP (e.g. A1:B10 -> 'A1:B10')
     e = preprocessExcelRanges(e);
 
@@ -149,6 +180,39 @@ export class MathEngine {
                 s += n;
             }
             return s;
+        };
+
+        const throwIfSpreadsheetError = (a: unknown) => {
+            if (typeof a === 'string' && a.startsWith('#')) throw new Error(a);
+            if (typeof a === 'number' && !Number.isFinite(a)) throw new Error('#NUM!');
+        };
+
+        const numericArgs = (args: unknown[]) =>
+            args.filter((a) => {
+                throwIfSpreadsheetError(a);
+                return typeof a === 'number' && !isNaN(a);
+            });
+
+        // Statistical Functions
+        this.parser.functions.AVERAGE = (...args: unknown[]) => {
+            const nums = numericArgs(args);
+            return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+        };
+        this.parser.functions.MIN = (...args: unknown[]) => {
+            const nums = numericArgs(args);
+            return nums.length ? Math.min(...nums) : 0;
+        };
+        this.parser.functions.MAX = (...args: unknown[]) => {
+            const nums = numericArgs(args);
+            return nums.length ? Math.max(...nums) : 0;
+        };
+        this.parser.functions.COUNT = (...args: unknown[]) => {
+            for (const a of args) throwIfSpreadsheetError(a);
+            return args.filter((a) => typeof a === 'number' && !isNaN(a)).length;
+        };
+        this.parser.functions.COUNTA = (...args: unknown[]) => {
+            for (const a of args) throwIfSpreadsheetError(a);
+            return args.filter((a) => a !== '' && a !== null && a !== undefined).length;
         };
 
         // 3. Register Logical Functions
@@ -222,7 +286,7 @@ export class MathEngine {
         if (!cell) return 0;
         if (cell.formula) {
             if (this.batchNumericCache !== null) return 0;
-            if (this.evalVisiting.has(id)) return '#REF!';
+            if (this.evalVisiting.has(id)) return '#CYCLE!';
 
             this.evalVisiting.add(id);
             try {

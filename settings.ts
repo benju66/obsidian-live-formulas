@@ -3,6 +3,8 @@ import LiveFormulasPlugin from './main';
 
 export interface LiveFormulasSettings {
     currencySymbol: string;
+    /** When true, negative currency displays as (1,000) instead of -1,000 */
+    accountingNegatives: boolean;
     enableHoverButtons: boolean;
     showToolbar: boolean;
     /** When `showToolbar` is true, whether the ribbon is visible (can be collapsed in the UI). */
@@ -41,6 +43,16 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.currencySymbol)
                 .onChange(async (value) => {
                     this.plugin.settings.currencySymbol = value || '$';
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Accounting Negatives')
+            .setDesc('Format negative currency as (1,000) instead of -1,000')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.accountingNegatives)
+                .onChange(async (value) => {
+                    this.plugin.settings.accountingNegatives = value;
                     await this.plugin.saveSettings();
                 }));
 
