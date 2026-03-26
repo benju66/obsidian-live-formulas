@@ -19,6 +19,16 @@ export class SelectionManager {
         return Array.from(this.selectedIds);
     }
 
+    public restoreSelection(activeId: string | null, selectedIds: string[]) {
+        this.selectedIds = new Set(selectedIds);
+        this.activeCellId = activeId;
+        this.startDragId = activeId;
+        this.renderSelection();
+        if (this.activeCellId) {
+            this.onSelectionChange?.(this.activeCellId);
+        }
+    }
+
     constructor(
         private wrapper: HTMLElement,
         private state: TableState,

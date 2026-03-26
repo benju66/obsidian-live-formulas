@@ -18,6 +18,13 @@ const balanceFormulaParens = (formula: string): string => {
     return formula;
 };
 
+interface SelectionCache {
+    timestamp: number;
+    activeCellId: string | null;
+    selectedIds: string[];
+}
+let recentSelectionCache: SelectionCache | null = null;
+
 export const renderTableUI = (
     el: HTMLElement,
     state: TableState,
@@ -153,6 +160,10 @@ export const renderTableUI = (
         saveWithHistory();
     });
 
+    const statefulEl = el as HTMLElement & {
+        __liveTableSelection?: { activeCellId: string | null; selectedIds: string[] };
+    };
+
     selectionManager.onUndo = () => {
         const stack = st.undoStack!;
         if (stack.length > 0) {
@@ -279,6 +290,13 @@ export const renderTableUI = (
     };
 
     selectionManager.onSelectionChange = (activeId) => {
+        const cache = {
+            activeCellId: activeId,
+            selectedIds: selectionManager.getSelectedIds(),
+        };
+        statefulEl.__liveTableSelection = cache;
+        recentSelectionCache = { timestamp: Date.now(), ...cache };
+
         if (!activeId) {
             formulaBarInput.value = '';
             formulaBarInput.disabled = true;
@@ -289,6 +307,16 @@ export const renderTableUI = (
         const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
         formulaBarInput.value = raw === undefined || raw === null ? '' : raw.toString();
     };
+
+    if (statefulEl.__liveTableSelection) {
+        const saved = statefulEl.__liveTableSelection;
+        selectionManager.restoreSelection(saved.activeCellId, saved.selectedIds);
+        setTimeout(() => wrapper.focus(), 10);
+    } else if (recentSelectionCache && Date.now() - recentSelectionCache.timestamp < 1000) {
+        selectionManager.restoreSelection(recentSelectionCache.activeCellId, recentSelectionCache.selectedIds);
+        setTimeout(() => wrapper.focus(), 10);
+        recentSelectionCache = null;
+    }
 
     formulaBarInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
