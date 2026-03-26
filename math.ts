@@ -23,6 +23,16 @@ function replaceBareCellRefs(expr: string): string {
             i = end + 2;
             continue;
         }
+        if (expr[i] === "'") {
+            const end = expr.indexOf("'", i + 1);
+            if (end === -1) {
+                result += expr.slice(i);
+                break;
+            }
+            result += expr.slice(i, end + 1);
+            i = end + 1;
+            continue;
+        }
         if (expr[i] === '"') {
             const end = expr.indexOf('"', i + 1);
             if (end === -1) {
@@ -45,19 +55,26 @@ function replaceBareCellRefs(expr: string): string {
     return result;
 }
 
-/**
- * Convert a spreadsheet formula (=...) into a safe expr-eval expression using CELL('A1') lookups.
- * Preserves scientific notation via mask/unmask (no character stripping).
- */
-/** Wrap unquoted A1:B10 ranges in quotes so expr-eval does not treat `:` as an operator. */
+/** Wrap unquoted A1:B10 ranges in single quotes so expr-eval does not treat `:` as an operator. */
 function preprocessExcelRanges(body: string): string {
-    return body.replace(/(?<!["'])\b(\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+)\b(?!["'])/gi, '"$1"');
+    return body.replace(/(?<!["'])\b(\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+)\b(?!["'])/gi, "'$1'");
 }
 
+/**
+ * Convert a spreadsheet formula (=...) into a safe expr-eval expression using CELL('A1') lookups.
+ * Preserves string literal case (masked before uppercase) and scientific notation via mask/unmask.
+ */
 export function formulaToExpr(formula: string): string {
     const raw = formula.trim();
     let body = raw.startsWith('=') ? raw.slice(1) : raw;
     body = preprocessExcelRanges(body);
+
+    const stringTokens: string[] = [];
+    body = body.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (match) => {
+        stringTokens.push(match);
+        return `"__STR${stringTokens.length - 1}__"`;
+    });
+
     const { text: masked, tokens } = maskScientificNotation(body);
     let e = masked.toUpperCase();
 
@@ -91,6 +108,8 @@ export function formulaToExpr(formula: string): string {
     if (tokens.length) {
         e = unmaskScientificNotation(e, tokens);
     }
+
+    e = e.replace(/"__STR(\d+)__"/g, (_, i) => stringTokens[parseInt(i, 10)]);
 
     return e;
 }
@@ -223,7 +242,7 @@ export class MathEngine {
         this.batchNumericCache = null;
         try {
             const expr = formulaToExpr(formula);
-            const v = this.parser.parse(expr).evaluate({});
+            const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
             if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
             if (typeof v === 'string' || typeof v === 'boolean') return v;
             return 0;
@@ -270,7 +289,7 @@ export class MathEngine {
                 const cell = this.state.getCell(id);
                 if (!cell?.formula) continue;
                 const expr = formulaToExpr(cell.formula);
-                const v = this.parser.parse(expr).evaluate({});
+                const v = this.parser.parse(expr).evaluate({ TRUE: true, FALSE: false });
                 this.batchNumericCache.set(id, v);
                 updated.push(id);
             }
