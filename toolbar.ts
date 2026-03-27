@@ -20,8 +20,13 @@ export class TableToolbar {
             if (opts?.bold) cls.push('live-formula-toolbar-btn--bold');
             const btn = this.el.createEl('button', { text, cls: cls.join(' ') });
             if (opts?.title) btn.title = opts.title;
-            btn.addEventListener('mousedown', (e) => e.preventDefault());
-            btn.addEventListener('click', (e) => onClick(e));
+
+            // FIX: Fire on mousedown and stop propagation to prevent the selection from clearing
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClick(e);
+            });
         };
 
         createBtn('↶', () => this.onFormat('history', 'undo'), { title: 'Undo' });
