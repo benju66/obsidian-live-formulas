@@ -94,13 +94,14 @@ export const renderTableUI = (
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
     const statusBar = container.createEl('div', { cls: 'live-formula-status-bar' });
-    statusBar.style.display = 'none';
+    statusBar.style.display = settings.showStatusBar !== false ? 'flex' : 'none';
     statusBar.style.justifyContent = 'flex-end';
     statusBar.style.gap = '15px';
     statusBar.style.padding = '6px 10px';
     statusBar.style.fontSize = '0.85em';
     statusBar.style.color = 'var(--text-muted)';
     statusBar.style.borderTop = '1px solid var(--background-modifier-border)';
+    statusBar.innerHTML = `<span>Count: 0</span>`;
 
     const refreshCellDisplay = (id: string) => {
         const td = wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
@@ -344,7 +345,8 @@ export const renderTableUI = (
         statefulEl.__liveTableSelection = cache;
         recentSelectionCache = { timestamp: Date.now(), ...cache };
 
-        if (selectedIds.length > 1) {
+        if (settings.showStatusBar !== false) {
+            statusBar.style.display = 'flex';
             let count = 0;
             let sum = 0;
             let hasNumbers = false;
@@ -352,6 +354,7 @@ export const renderTableUI = (
             for (const sid of selectedIds) {
                 const cell = state.getCell(sid);
                 const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+                // Excel only counts non-empty cells
                 if (raw !== '' && raw !== null && raw !== undefined) {
                     count++;
                     let num: number | null = null;
@@ -368,17 +371,12 @@ export const renderTableUI = (
                 }
             }
 
-            if (count > 0) {
-                statusBar.style.display = 'flex';
-                let html = `<span>Count: ${count}</span>`;
-                if (hasNumbers) {
-                    const avg = sum / count;
-                    html = `<span>Average: ${Number.isInteger(avg) ? avg : avg.toFixed(2)}</span><span>Count: ${count}</span><span>Sum: ${Number.isInteger(sum) ? sum : sum.toFixed(2)}</span>`;
-                }
-                statusBar.innerHTML = html;
-            } else {
-                statusBar.style.display = 'none';
+            let html = `<span>Count: ${count}</span>`;
+            if (hasNumbers && count > 0) {
+                const avg = sum / count;
+                html = `<span>Average: ${Number.isInteger(avg) ? avg : avg.toFixed(2)}</span><span>Count: ${count}</span><span>Sum: ${Number.isInteger(sum) ? sum : sum.toFixed(2)}</span>`;
             }
+            statusBar.innerHTML = html;
         } else {
             statusBar.style.display = 'none';
         }

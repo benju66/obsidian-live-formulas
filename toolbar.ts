@@ -29,10 +29,6 @@ export class TableToolbar {
             });
         };
 
-        createBtn('↶', () => this.onFormat('history', 'undo'), { title: 'Undo' });
-        createBtn('↷', () => this.onFormat('history', 'redo'), { title: 'Redo' });
-        this.el.createEl('div', { cls: 'live-formula-toolbar-divider' });
-
         createBtn('B', () => this.onFormat('bold', true), { bold: true });
         createBtn('$', () => this.onFormat('type', 'currency'));
         createBtn('%', () => this.onFormat('type', 'percent'));

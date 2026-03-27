@@ -10,6 +10,7 @@ export interface LiveFormulasSettings {
     /** When `showToolbar` is true, whether the ribbon is visible (can be collapsed in the UI). */
     toolbarVisible: boolean;
     showHeaders: boolean;
+    showStatusBar: boolean;
     defaultRows: number;
     defaultCols: number;
 }
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: LiveFormulasSettings = {
     showToolbar: true,
     toolbarVisible: true,
     showHeaders: true,
+    showStatusBar: true,
     defaultRows: 2,
     defaultCols: 2,
 };
@@ -128,6 +130,16 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.showHeaders)
                 .onChange(async (value) => {
                     this.plugin.settings.showHeaders = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Show Status Bar')
+            .setDesc('Show the Excel-style status bar (Average, Count, Sum) at the bottom of the table.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.showStatusBar !== false)
+                .onChange(async (value) => {
+                    this.plugin.settings.showStatusBar = value;
                     await this.plugin.saveSettings();
                 }));
     }
