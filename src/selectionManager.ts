@@ -295,11 +295,17 @@ export class SelectionManager {
 
         if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
             e.preventDefault();
-            this.onUndo?.();
+            e.stopPropagation();
+            if (e.shiftKey) {
+                this.onRedo?.();
+            } else {
+                this.onUndo?.();
+            }
             return;
         }
         if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
             e.preventDefault();
+            e.stopPropagation();
             this.onRedo?.();
             return;
         }

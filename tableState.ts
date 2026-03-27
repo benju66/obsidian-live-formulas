@@ -45,7 +45,7 @@ export function lettersToColumnIndex(letters: string): number {
 }
 
 function parseCellText(text: string): { value: any; formula?: string } {
-    const t = text.trim();
+    const t = text.trim().replace(/&#124;/g, '|'); // Unescape pipes on load
     if (t.startsWith('=')) {
         return { value: t, formula: t };
     }
@@ -351,11 +351,16 @@ export class TableState {
 
 function stringifyCellForMarkdown(cell: CellData | undefined): string {
     if (!cell) return '';
+    let rawStr = '';
     if (cell.formula) {
         const f = cell.formula;
-        return f.startsWith('=') ? f : `=${f}`;
+        rawStr = f.startsWith('=') ? f : `=${f}`;
+    } else {
+        const v = cell.value;
+        if (v !== undefined && v !== null) {
+            rawStr = String(v);
+        }
     }
-    const v = cell.value;
-    if (v === undefined || v === null) return '';
-    return String(v);
+    // Escape pipes so they don't break the markdown table layout
+    return rawStr.replace(/\|/g, '&#124;');
 }

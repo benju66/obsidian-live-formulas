@@ -93,6 +93,15 @@ export const renderTableUI = (
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
 
+    const statusBar = container.createEl('div', { cls: 'live-formula-status-bar' });
+    statusBar.style.display = 'none';
+    statusBar.style.justifyContent = 'flex-end';
+    statusBar.style.gap = '15px';
+    statusBar.style.padding = '6px 10px';
+    statusBar.style.fontSize = '0.85em';
+    statusBar.style.color = 'var(--text-muted)';
+    statusBar.style.borderTop = '1px solid var(--background-modifier-border)';
+
     const refreshCellDisplay = (id: string) => {
         const td = wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
         if (!td) return;
@@ -290,12 +299,52 @@ export const renderTableUI = (
     };
 
     selectionManager.onSelectionChange = (activeId) => {
+        const selectedIds = selectionManager.getSelectedIds();
         const cache = {
             activeCellId: activeId,
-            selectedIds: selectionManager.getSelectedIds(),
+            selectedIds,
         };
         statefulEl.__liveTableSelection = cache;
         recentSelectionCache = { timestamp: Date.now(), ...cache };
+
+        if (selectedIds.length > 1) {
+            let count = 0;
+            let sum = 0;
+            let hasNumbers = false;
+
+            for (const sid of selectedIds) {
+                const cell = state.getCell(sid);
+                const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
+                if (raw !== '' && raw !== null && raw !== undefined) {
+                    count++;
+                    let num: number | null = null;
+                    if (typeof raw === 'string' && raw.startsWith('=')) {
+                        const result = engine.evaluateFormula(raw);
+                        if (typeof result === 'number' && !isNaN(result)) num = result;
+                    } else if (typeof raw === 'number' && !isNaN(raw)) {
+                        num = raw;
+                    }
+                    if (num !== null) {
+                        sum += num;
+                        hasNumbers = true;
+                    }
+                }
+            }
+
+            if (count > 0) {
+                statusBar.style.display = 'flex';
+                let html = `<span>Count: ${count}</span>`;
+                if (hasNumbers) {
+                    const avg = sum / count;
+                    html = `<span>Average: ${Number.isInteger(avg) ? avg : avg.toFixed(2)}</span><span>Count: ${count}</span><span>Sum: ${Number.isInteger(sum) ? sum : sum.toFixed(2)}</span>`;
+                }
+                statusBar.innerHTML = html;
+            } else {
+                statusBar.style.display = 'none';
+            }
+        } else {
+            statusBar.style.display = 'none';
+        }
 
         if (!activeId) {
             formulaBarInput.value = '';
@@ -357,6 +406,11 @@ export const renderTableUI = (
         const tb = new TableToolbar(container, (key, val) => {
             if (key === 'toggleHeaders') {
                 if (toggleHeaders) void toggleHeaders();
+                return;
+            }
+            if (key === 'history') {
+                if (val === 'undo') selectionManager.onUndo?.();
+                if (val === 'redo') selectionManager.onRedo?.();
                 return;
             }
 

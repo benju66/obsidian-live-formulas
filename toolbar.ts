@@ -15,13 +15,18 @@ export class TableToolbar {
     }
 
     private buildButtons() {
-        const createBtn = (text: string, onClick: (e: MouseEvent) => void, opts?: { bold?: boolean }) => {
+        const createBtn = (text: string, onClick: (e: MouseEvent) => void, opts?: { bold?: boolean; title?: string }) => {
             const cls = ['live-formula-toolbar-btn'];
             if (opts?.bold) cls.push('live-formula-toolbar-btn--bold');
             const btn = this.el.createEl('button', { text, cls: cls.join(' ') });
+            if (opts?.title) btn.title = opts.title;
             btn.addEventListener('mousedown', (e) => e.preventDefault());
             btn.addEventListener('click', (e) => onClick(e));
         };
+
+        createBtn('↶', () => this.onFormat('history', 'undo'), { title: 'Undo' });
+        createBtn('↷', () => this.onFormat('history', 'redo'), { title: 'Redo' });
+        this.el.createEl('div', { cls: 'live-formula-toolbar-divider' });
 
         createBtn('B', () => this.onFormat('bold', true), { bold: true });
         createBtn('$', () => this.onFormat('type', 'currency'));
