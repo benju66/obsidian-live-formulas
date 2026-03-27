@@ -44,8 +44,32 @@ export function lettersToColumnIndex(letters: string): number {
     return n;
 }
 
+function splitTableLine(line: string): string[] {
+    let s = line.trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+
+    const parts: string[] = [];
+    let current = '';
+
+    // Custom loop to safely split on '|' while ignoring '\|'
+    // Compatible with all JS engines (avoids iOS <16.4 WebKit regex crash)
+    for (let i = 0; i < s.length; i++) {
+        if (s[i] === '|' && (i === 0 || s[i - 1] !== '\\')) {
+            parts.push(current);
+            current = '';
+        } else {
+            current += s[i];
+        }
+    }
+    parts.push(current);
+
+    // Unescape the markdown pipe if the user manually typed \|
+    return parts.map((c) => c.trim().replace(/\\\|/g, '|'));
+}
+
 function parseCellText(text: string): { value: any; formula?: string } {
-    const t = text.trim().replace(/&#124;/g, '|'); // Unescape pipes on load
+    const t = text.trim();
     if (t.startsWith('=')) {
         return { value: t, formula: t };
     }
@@ -56,13 +80,6 @@ function parseCellText(text: string): { value: any; formula?: string } {
         return { value: asNum };
     }
     return { value: t };
-}
-
-function splitTableLine(line: string): string[] {
-    let s = line.trim();
-    if (s.startsWith('|')) s = s.slice(1);
-    if (s.endsWith('|')) s = s.slice(0, -1);
-    return s.split('|').map((c) => c.trim());
 }
 
 function isSeparatorRow(parts: string[]): boolean {
@@ -361,6 +378,15 @@ function stringifyCellForMarkdown(cell: CellData | undefined): string {
             rawStr = String(v);
         }
     }
-    // Escape pipes so they don't break the markdown table layout
-    return rawStr.replace(/\|/g, '&#124;');
+
+    // Custom loop to safely escape '|' to '\|' without regex lookbehinds
+    let escapedStr = '';
+    for (let i = 0; i < rawStr.length; i++) {
+        if (rawStr[i] === '|' && (i === 0 || rawStr[i - 1] !== '\\')) {
+            escapedStr += '\\|';
+        } else {
+            escapedStr += rawStr[i];
+        }
+    }
+    return escapedStr;
 }

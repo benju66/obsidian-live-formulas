@@ -69,37 +69,78 @@ export default class LiveFormulasPlugin extends Plugin {
 
                 const saveStateToFile = () => {
                     if (!state.dirty) return;
-                    const section = ctx.getSectionInfo(el);
-                    if (!section) return;
+                    const sectionHint = ctx.getSectionInfo(el);
+                    if (!sectionHint) return;
                     const file = this.app.vault.getFileByPath(ctx.sourcePath);
                     if (!file) return;
-                    const md = state.toMarkdownText();
 
+                    const md = state.toMarkdownText();
                     state.clearDirty();
 
                     void this.app.vault.process(file, (data) => {
                         const lines = data.split('\n');
                         const newLines = md.split('\n');
 
-                        const openLine = lines[section.lineStart] ?? '';
-                        const closeLine = lines[section.lineEnd] ?? '';
+                        // FAST PATH: Check if the original cached section is still perfectly valid
+                        const openLine = lines[sectionHint.lineStart] ?? '';
+                        const closeLine = lines[sectionHint.lineEnd] ?? '';
+
                         if (
                             openLine.trimStart().startsWith('```live-table') &&
                             closeLine.trimStart().startsWith('```')
                         ) {
-                            lines.splice(section.lineStart + 1, section.lineEnd - section.lineStart - 1, ...newLines);
-                        } else {
-                            console.warn(
-                                'Live Formulas: Document shifted during async write. Aborting save to prevent corruption.'
+                            lines.splice(
+                                sectionHint.lineStart + 1,
+                                sectionHint.lineEnd - sectionHint.lineStart - 1,
+                                ...newLines
                             );
-                            new Notice(
-                                'Live Formulas: Document shifted. Save aborted to prevent data loss. Please re-trigger save.'
-                            );
-                            state.markDirty();
-                            return data;
+                            return lines.join('\n');
                         }
 
-                        return lines.join('\n');
+                        // SLOW PATH: Document shifted. Search outward from the original lineStart to find the new block bounds.
+                        console.log('Live Formulas: Document shifted. Dynamically locating table block...');
+                        let foundStart = -1;
+                        let foundEnd = -1;
+
+                        // Search backwards and forwards near the expected location
+                        for (let i = sectionHint.lineStart; i >= 0 && i < lines.length; i--) {
+                            if (lines[i].trimStart().startsWith('```live-table')) {
+                                foundStart = i;
+                                break;
+                            }
+                        }
+                        if (foundStart === -1) {
+                            for (let i = sectionHint.lineStart + 1; i < lines.length; i++) {
+                                if (lines[i].trimStart().startsWith('```live-table')) {
+                                    foundStart = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1) {
+                            for (let i = foundStart + 1; i < lines.length; i++) {
+                                if (lines[i].trimStart().startsWith('```')) {
+                                    foundEnd = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1 && foundEnd !== -1) {
+                            lines.splice(foundStart + 1, foundEnd - foundStart - 1, ...newLines);
+                            return lines.join('\n');
+                        }
+
+                        // If we still can't find it, abort to prevent corruption
+                        console.warn(
+                            'Live Formulas: Could not locate table block after document shift. Aborting save.'
+                        );
+                        new Notice(
+                            'Live Formulas: Document shifted drastically. Save aborted to prevent data loss. Please manually re-trigger save.'
+                        );
+                        state.markDirty();
+                        return data;
                     });
                 };
 
