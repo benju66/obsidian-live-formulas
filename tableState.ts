@@ -88,6 +88,13 @@ function isSeparatorRow(parts: string[]): boolean {
     return parts.every((p) => /^-+$/.test(p.replace(/:/g, '').trim()) || /^:?-+:?$/.test(p));
 }
 
+const generateTableId = (): string => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'tbl_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 11);
+};
+
 export class TableState {
     cells: Map<string, CellData> = new Map();
     maxRow = 1;
@@ -97,8 +104,7 @@ export class TableState {
     // FIX: Track if the dependency graph needs rebuilding
     structureDirty = true;
 
-    // FIX: Unique id per table; legacy tables without meta get one on first load
-    public tableName = Math.random().toString(36).slice(2, 9);
+    public tableName = generateTableId();
 
     markDirty(): void {
         this.dirty = true;

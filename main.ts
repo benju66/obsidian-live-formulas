@@ -6,6 +6,8 @@ import {
     Editor,
     MarkdownView,
     Notice,
+    debounce,
+    Debouncer,
 } from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
@@ -14,7 +16,7 @@ import { TableState } from './tableState';
 class LiveTableSaveLifecycle extends MarkdownRenderChild {
     constructor(
         containerEl: HTMLElement,
-        private readonly saveStateToFile: () => void,
+        private readonly saveStateToFile: Debouncer<[], void>,
         private readonly unregister: () => void,
         private readonly destroyUI: () => void
     ) {
@@ -22,7 +24,7 @@ class LiveTableSaveLifecycle extends MarkdownRenderChild {
     }
 
     onunload(): void {
-        this.saveStateToFile();
+        this.saveStateToFile.run();
         this.unregister();
         this.destroyUI();
     }
@@ -39,7 +41,7 @@ function defaultTableMarkdown(settings: LiveFormulasSettings): string {
 export default class LiveFormulasPlugin extends Plugin {
     settings: LiveFormulasSettings;
 
-    private liveTableBlocks = new Set<() => void>();
+    private liveTableBlocks = new Set<Debouncer<[], void>>();
 
     async onload() {
         await this.loadSettings();
@@ -67,7 +69,7 @@ export default class LiveFormulasPlugin extends Plugin {
             (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
                 const state = TableState.parseBlockSource(source);
 
-                const saveStateToFile = () => {
+                const performSave = () => {
                     if (!state.dirty) return;
                     const sectionHint = ctx.getSectionInfo(el);
                     if (!sectionHint) return;
@@ -154,13 +156,15 @@ export default class LiveFormulasPlugin extends Plugin {
                     });
                 };
 
+                const saveStateToFile = debounce(performSave, 400, true);
+
                 const unregister = () => {
                     this.liveTableBlocks.delete(saveStateToFile);
                 };
                 const destroyRef = { current: () => {} };
 
                 const toggleHeaders = async () => {
-                    saveStateToFile();
+                    performSave();
                     this.settings.showHeaders = !this.settings.showHeaders;
                     await this.saveSettings();
 
@@ -195,7 +199,7 @@ export default class LiveFormulasPlugin extends Plugin {
 
     onunload() {
         for (const save of this.liveTableBlocks) {
-            save();
+            save.run();
         }
         this.liveTableBlocks.clear();
     }
