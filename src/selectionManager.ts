@@ -498,6 +498,11 @@ export class SelectionManager {
     }
 
     private onKeyDown = (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+            return;
+        }
+
         if (document.activeElement?.classList.contains('live-formula-formula-bar-input')) return;
         if (this.editor.el.style.display === 'block') return;
         if (!this.activeCellId) return;
