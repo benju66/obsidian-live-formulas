@@ -194,13 +194,7 @@ export const renderTableUI = (
         saveWithHistory();
     });
 
-    const runCopyToClipboard = (e: ClipboardEvent): boolean => {
-        const isEditing =
-            cellEditor.el.style.display === 'block' ||
-            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
-            document.activeElement?.classList.contains('live-formula-table-name-input');
-        if (isEditing) return false;
-
+    const executeCopy = (): boolean => {
         const selectedIds = selectionManager.getSelectedIds();
         if (selectedIds.length === 0) return false;
 
@@ -231,31 +225,20 @@ export const renderTableUI = (
                 const cell = state.getCell(id);
                 rowData.push(cell ? JSON.parse(JSON.stringify(cell)) : null);
                 const td = wrapper.querySelector(`td[data-cell-id="${id}"]`);
-                tsvCols.push(td ? td.textContent || '' : cell ? String(cell.value ?? '') : '');
+                tsvCols.push(td ? td.textContent || '' : cell ? String(cell.value || '') : '');
             }
             matrix.push(rowData);
             tsvRows.push(tsvCols.join('\t'));
         }
 
         const tsv = tsvRows.join('\n');
-        e.clipboardData?.setData('text/plain', tsv);
+        void navigator.clipboard.writeText(tsv);
         pluginClipboard = { text: tsv, matrix, minC, minR };
-        e.preventDefault();
         return true;
     };
 
-    wrapper.addEventListener('copy', (e) => {
-        runCopyToClipboard(e);
-    });
-
-    wrapper.addEventListener('cut', (e) => {
-        const isEditing =
-            cellEditor.el.style.display === 'block' ||
-            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
-            document.activeElement?.classList.contains('live-formula-table-name-input');
-        if (isEditing) return;
-
-        if (!runCopyToClipboard(e)) return;
+    const executeCut = () => {
+        if (!executeCopy()) return;
 
         const selectedIds = selectionManager.getSelectedIds();
         selectedIds.forEach((id) => {
@@ -270,21 +253,11 @@ export const renderTableUI = (
 
         state.markDirty();
         saveWithHistory();
-    });
+    };
 
-    wrapper.addEventListener('paste', (e) => {
-        const isEditing =
-            cellEditor.el.style.display === 'block' ||
-            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
-            document.activeElement?.classList.contains('live-formula-table-name-input');
-        if (isEditing) return;
-
-        const text = e.clipboardData?.getData('text/plain');
-        if (!text) return;
+    const executePaste = (text: string) => {
         const activeId = selectionManager.getActiveCellId();
         if (!activeId) return;
-
-        e.preventDefault();
 
         const match = activeId.match(/^([A-Z]+)(\d+)$/i);
         if (!match) return;
@@ -363,6 +336,39 @@ export const renderTableUI = (
         } else {
             cellsToRefresh.forEach((id) => refreshCellDisplay(id));
             saveWithHistory();
+        }
+    };
+
+    wrapper.addEventListener('copy', (e) => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return;
+        if (!executeCopy()) return;
+        e.preventDefault();
+    });
+
+    wrapper.addEventListener('cut', (e) => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return;
+        executeCut();
+        e.preventDefault();
+    });
+
+    wrapper.addEventListener('paste', (e) => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return;
+        const text = e.clipboardData?.getData('text/plain');
+        if (text) {
+            e.preventDefault();
+            executePaste(text);
         }
     });
 
@@ -504,6 +510,17 @@ export const renderTableUI = (
                 wrapper.focus();
                 const colIdx = lettersToColumnIndex(c);
                 const menu = new Menu();
+
+                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
+                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
+                menu.addItem((i) =>
+                    i.setTitle('Paste').onClick(async () => {
+                        const text = await navigator.clipboard.readText();
+                        if (text) executePaste(text);
+                    })
+                );
+                menu.addSeparator();
+
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Left').onClick(() => {
                         Actions.insertCol(state, colIdx, rows);
@@ -546,6 +563,17 @@ export const renderTableUI = (
                 selectionManager.selectRow(r);
                 wrapper.focus();
                 const menu = new Menu();
+
+                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
+                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
+                menu.addItem((i) =>
+                    i.setTitle('Paste').onClick(async () => {
+                        const text = await navigator.clipboard.readText();
+                        if (text) executePaste(text);
+                    })
+                );
+                menu.addSeparator();
+
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Above').onClick(() => {
                         Actions.insertRow(state, r);
