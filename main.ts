@@ -24,7 +24,11 @@ class LiveTableSaveLifecycle extends MarkdownRenderChild {
     }
 
     onunload(): void {
-        this.saveStateToFile.run();
+        if (this.saveStateToFile && typeof (this.saveStateToFile as any).flush === 'function') {
+            (this.saveStateToFile as any).flush();
+        } else {
+            this.saveStateToFile();
+        }
         this.unregister();
         this.destroyUI();
     }
@@ -199,7 +203,11 @@ export default class LiveFormulasPlugin extends Plugin {
 
     onunload() {
         for (const save of this.liveTableBlocks) {
-            save.run();
+            if (typeof (save as any).flush === 'function') {
+                (save as any).flush();
+            } else {
+                save();
+            }
         }
         this.liveTableBlocks.clear();
     }
