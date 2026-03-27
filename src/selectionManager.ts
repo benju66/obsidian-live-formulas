@@ -174,6 +174,7 @@ export class SelectionManager {
         if (e.shiftKey && this.activeCellId) {
             e.preventDefault();
             this.selectRange(this.activeCellId, cellId);
+            this.onSelectionChange?.(this.activeCellId);
         } else if (cmdOrCtrl) {
             e.preventDefault();
             if (this.selectedIds.has(cellId)) {
@@ -211,6 +212,7 @@ export class SelectionManager {
         if (!hoverId) return;
 
         this.selectRange(this.startDragId, hoverId);
+        this.onSelectionChange?.(this.activeCellId);
     };
 
     private onMouseUp = () => {
