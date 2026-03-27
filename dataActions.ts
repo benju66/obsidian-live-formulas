@@ -1,5 +1,18 @@
 import { TableState, CellData, columnIndexToLetters, lettersToColumnIndex } from './tableState';
 
+export const shiftFormulaByOffset = (formula: string, colOffset: number, rowOffset: number): string => {
+    return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
+        let c = lettersToColumnIndex(colStr.toUpperCase());
+        let r = parseInt(rowStr, 10);
+
+        if (colAnchor !== '$') c += colOffset;
+        if (rowAnchor !== '$') r += rowOffset;
+
+        if (r < 1 || c < 1) return '#REF!';
+        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
+    });
+};
+
 /**
  * Updates cell references in a formula when a row or column is inserted or deleted,
  * respecting Excel-style absolute anchors ($A$1, $A1, A$1).
@@ -174,16 +187,7 @@ export const fillFormulaToRange = (state: TableState, sourceCellId: string, targ
     const colOffset = c2 - c1;
     const rowOffset = r2 - r1;
 
-    const newFormula = sourceCell.formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
-        let c = lettersToColumnIndex(colStr.toUpperCase());
-        let r = parseInt(rowStr, 10);
-
-        if (colAnchor !== '$') c += colOffset;
-        if (rowAnchor !== '$') r += rowOffset;
-
-        if (r < 1 || c < 1) return '#REF!';
-        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
-    });
+    const newFormula = shiftFormulaByOffset(sourceCell.formula, colOffset, rowOffset);
 
     state.setCell(targetCellId, { value: newFormula, formula: newFormula, format: formatObj });
     state.markDirty();

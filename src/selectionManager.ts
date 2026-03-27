@@ -295,6 +295,29 @@ export class SelectionManager {
         this.renderSelection();
     }
 
+    public selectColumn(colStr: string) {
+        this.selectedIds.clear();
+        for (let r = 1; r <= this.state.maxRow; r++) {
+            this.selectedIds.add(`${colStr}${r}`);
+        }
+        this.activeCellId = `${colStr}1`;
+        this.startDragId = this.activeCellId;
+        this.renderSelection();
+        this.onSelectionChange?.(this.activeCellId);
+    }
+
+    public selectRow(rowNum: number) {
+        this.selectedIds.clear();
+        const cols = this.state.getColumnLetters();
+        for (const c of cols) {
+            this.selectedIds.add(`${c}${rowNum}`);
+        }
+        this.activeCellId = `${cols[0] ?? 'A'}${rowNum}`;
+        this.startDragId = this.activeCellId;
+        this.renderSelection();
+        this.onSelectionChange?.(this.activeCellId);
+    }
+
     private clearSelection() {
         this.selectedIds.clear();
         this.activeCellId = null;

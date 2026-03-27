@@ -2,7 +2,7 @@ import { Menu } from 'obsidian';
 import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
-import { TableState, CellData, lettersToColumnIndex } from './tableState';
+import { TableState, CellData, lettersToColumnIndex, columnIndexToLetters } from './tableState';
 import * as Actions from './dataActions';
 import { CellEditor } from './src/cellEditor';
 import { SelectionManager } from './src/selectionManager';
@@ -24,6 +24,14 @@ interface SelectionCache {
     selectedIds: string[];
 }
 let recentSelectionCache: SelectionCache | null = null;
+
+interface InternalClipboard {
+    text: string;
+    matrix: any[][];
+    minC: number;
+    minR: number;
+}
+let pluginClipboard: InternalClipboard | null = null;
 
 export const renderTableUI = (
     el: HTMLElement,
@@ -186,6 +194,178 @@ export const renderTableUI = (
         saveWithHistory();
     });
 
+    const runCopyToClipboard = (e: ClipboardEvent): boolean => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return false;
+
+        const selectedIds = selectionManager.getSelectedIds();
+        if (selectedIds.length === 0) return false;
+
+        let minR = Infinity,
+            maxR = -Infinity,
+            minC = Infinity,
+            maxC = -Infinity;
+        selectedIds.forEach((id) => {
+            const match = id.match(/^([A-Z]+)(\d+)$/i);
+            if (match) {
+                const c = lettersToColumnIndex(match[1]);
+                const r = parseInt(match[2], 10);
+                if (c < minC) minC = c;
+                if (c > maxC) maxC = c;
+                if (r < minR) minR = r;
+                if (r > maxR) maxR = r;
+            }
+        });
+
+        const matrix: any[][] = [];
+        const tsvRows: string[] = [];
+
+        for (let r = minR; r <= maxR; r++) {
+            const rowData: any[] = [];
+            const tsvCols: string[] = [];
+            for (let c = minC; c <= maxC; c++) {
+                const id = `${columnIndexToLetters(c)}${r}`;
+                const cell = state.getCell(id);
+                rowData.push(cell ? JSON.parse(JSON.stringify(cell)) : null);
+                const td = wrapper.querySelector(`td[data-cell-id="${id}"]`);
+                tsvCols.push(td ? td.textContent || '' : cell ? String(cell.value ?? '') : '');
+            }
+            matrix.push(rowData);
+            tsvRows.push(tsvCols.join('\t'));
+        }
+
+        const tsv = tsvRows.join('\n');
+        e.clipboardData?.setData('text/plain', tsv);
+        pluginClipboard = { text: tsv, matrix, minC, minR };
+        e.preventDefault();
+        return true;
+    };
+
+    wrapper.addEventListener('copy', (e) => {
+        runCopyToClipboard(e);
+    });
+
+    wrapper.addEventListener('cut', (e) => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return;
+
+        if (!runCopyToClipboard(e)) return;
+
+        const selectedIds = selectionManager.getSelectedIds();
+        selectedIds.forEach((id) => {
+            const cell = state.ensureCell(id);
+            cell.value = '';
+            cell.formula = undefined;
+            state.setCell(id, cell);
+
+            const { updated } = engine.updateCellAndDependents(id);
+            [id, ...updated].forEach((uid) => refreshCellDisplay(uid));
+        });
+
+        state.markDirty();
+        saveWithHistory();
+    });
+
+    wrapper.addEventListener('paste', (e) => {
+        const isEditing =
+            cellEditor.el.style.display === 'block' ||
+            document.activeElement?.classList.contains('live-formula-formula-bar-input') ||
+            document.activeElement?.classList.contains('live-formula-table-name-input');
+        if (isEditing) return;
+
+        const text = e.clipboardData?.getData('text/plain');
+        if (!text) return;
+        const activeId = selectionManager.getActiveCellId();
+        if (!activeId) return;
+
+        e.preventDefault();
+
+        const match = activeId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return;
+        const startCol = lettersToColumnIndex(match[1]);
+        const startRow = parseInt(match[2], 10);
+
+        const cellsToRefresh = new Set<string>();
+        let needsRerender = false;
+
+        if (pluginClipboard && pluginClipboard.text === text) {
+            const matrix = pluginClipboard.matrix;
+            const dCol = startCol - pluginClipboard.minC;
+            const dRow = startRow - pluginClipboard.minR;
+            for (let rowOffset = 0; rowOffset < matrix.length; rowOffset++) {
+                for (let colOffset = 0; colOffset < matrix[rowOffset].length; colOffset++) {
+                    const sourceCell = matrix[rowOffset][colOffset];
+                    if (!sourceCell) continue;
+
+                    const targetCol = startCol + colOffset;
+                    const targetRow = startRow + rowOffset;
+                    const targetId = `${columnIndexToLetters(targetCol)}${targetRow}`;
+
+                    if (targetCol > state.maxCol || targetRow > state.maxRow) needsRerender = true;
+
+                    const newCell = { ...sourceCell };
+                    if (newCell.formula) {
+                        newCell.formula = Actions.shiftFormulaByOffset(newCell.formula, dCol, dRow);
+                    }
+                    state.setCell(targetId, newCell);
+                    cellsToRefresh.add(targetId);
+                }
+            }
+        } else {
+            const rows = text.split(/\r?\n/);
+            for (let rowOffset = 0; rowOffset < rows.length; rowOffset++) {
+                if (!rows[rowOffset] && rowOffset === rows.length - 1) continue;
+                const cols = rows[rowOffset].split('\t');
+                for (let colOffset = 0; colOffset < cols.length; colOffset++) {
+                    const targetCol = startCol + colOffset;
+                    const targetRow = startRow + rowOffset;
+                    const targetId = `${columnIndexToLetters(targetCol)}${targetRow}`;
+
+                    if (targetCol > state.maxCol || targetRow > state.maxRow) needsRerender = true;
+
+                    let parsed: string | number = cols[colOffset].trim();
+                    const asNum = Number(parsed.replace(/,/g, ''));
+                    if (!isNaN(asNum) && parsed !== '') parsed = asNum;
+
+                    const cell = state.ensureCell(targetId);
+                    cell.value = parsed;
+                    cell.formula = typeof parsed === 'string' && parsed.startsWith('=') ? parsed : undefined;
+                    state.setCell(targetId, cell);
+                    cellsToRefresh.add(targetId);
+                }
+            }
+        }
+
+        state.recalculateExtents();
+        state.markDirty();
+
+        const toProcess = [...cellsToRefresh];
+        for (let i = 0; i < toProcess.length; i++) {
+            const id = toProcess[i];
+            const { updated } = engine.updateCellAndDependents(id);
+            for (const depId of updated) {
+                if (!cellsToRefresh.has(depId)) {
+                    cellsToRefresh.add(depId);
+                    toProcess.push(depId);
+                }
+            }
+        }
+
+        if (needsRerender) {
+            saveWithHistory();
+            rerender();
+        } else {
+            cellsToRefresh.forEach((id) => refreshCellDisplay(id));
+            saveWithHistory();
+        }
+    });
+
     // Handle Drag-to-Fill execution
     selectionManager.onFillRange = (sourceId: string, targetIds: string[]) => {
         let changed = false;
@@ -309,13 +489,86 @@ export const renderTableUI = (
     if (settings.showHeaders) {
         const hr = table.createEl('tr');
         hr.createEl('th', { cls: 'live-formula-corner-th' });
-        cols.forEach((c) => hr.createEl('th', { text: c, cls: 'live-formula-col-head' }));
+        cols.forEach((c) => {
+            const th = hr.createEl('th', { text: c, cls: 'live-formula-col-head' });
+            th.style.cursor = 'pointer';
+
+            th.addEventListener('click', () => {
+                selectionManager.selectColumn(c);
+                wrapper.focus();
+            });
+
+            th.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                selectionManager.selectColumn(c);
+                wrapper.focus();
+                const colIdx = lettersToColumnIndex(c);
+                const menu = new Menu();
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Left').onClick(() => {
+                        Actions.insertCol(state, colIdx, rows);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Column Right').onClick(() => {
+                        Actions.insertCol(state, colIdx + 1, rows);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Column').onClick(() => {
+                        Actions.deleteCol(state, colIdx);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.showAtMouseEvent(e);
+            });
+        });
     }
 
     for (let r = 1; r <= rows; r++) {
         const tr = table.createEl('tr');
         if (settings.showHeaders) {
-            tr.createEl('td', { text: r.toString(), cls: 'live-formula-row-head' });
+            const rHead = tr.createEl('td', { text: r.toString(), cls: 'live-formula-row-head' });
+            rHead.style.cursor = 'pointer';
+
+            rHead.addEventListener('click', () => {
+                selectionManager.selectRow(r);
+                wrapper.focus();
+            });
+
+            rHead.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                selectionManager.selectRow(r);
+                wrapper.focus();
+                const menu = new Menu();
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Above').onClick(() => {
+                        Actions.insertRow(state, r);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Insert Row Below').onClick(() => {
+                        Actions.insertRow(state, r + 1);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.addItem((i) =>
+                    i.setTitle('Delete Row').onClick(() => {
+                        Actions.deleteRow(state, r);
+                        saveWithHistory();
+                        rerender();
+                    })
+                );
+                menu.showAtMouseEvent(e);
+            });
         }
 
         for (const c of cols) {
