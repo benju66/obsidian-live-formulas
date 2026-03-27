@@ -346,3 +346,10 @@ td.live-formula-cell.is-fill-highlight {
 .live-formula-table-name-input:focus {
     box-shadow: 0 2px 0 0 var(--interactive-accent);
 }
+
+td.live-formula-cell.is-copied-highlight {
+    outline: 2px dashed var(--interactive-accent);
+    outline-offset: -2px;
+    background-color: rgba(var(--color-accent-rgb, 100, 150, 255), 0.05);
+    z-index: 5;
+}

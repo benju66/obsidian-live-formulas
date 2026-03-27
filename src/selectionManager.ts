@@ -85,6 +85,7 @@ export class SelectionManager {
         this.wrapper.addEventListener('mouseover', this.onMouseOver);
         window.addEventListener('mouseup', this.onMouseUp);
         this.wrapper.addEventListener('keydown', this.onKeyDown);
+        document.addEventListener('mousedown', this.onDocumentMouseDown);
     }
 
     private shouldInjectCellReference(inputEl: HTMLInputElement | HTMLTextAreaElement): boolean {
@@ -269,6 +270,15 @@ export class SelectionManager {
         }
     };
 
+    private onDocumentMouseDown = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (!this.wrapper.contains(target) && !target.closest('.live-formula-floating-editor') && !target.closest('.menu')) {
+            if (this.selectedIds.size > 0 || this.activeCellId) {
+                this.clearSelection();
+            }
+        }
+    };
+
     private selectRange(startId: string, endId: string) {
         this.selectedIds.clear();
 
@@ -318,6 +328,55 @@ export class SelectionManager {
         this.onSelectionChange?.(this.activeCellId);
     }
 
+    public expandColumnSelection(colStr: string) {
+        if (!this.activeCellId) {
+            this.selectColumn(colStr);
+            return;
+        }
+        const match = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return;
+
+        const startCol = lettersToColumnIndex(match[1]);
+        const endCol = lettersToColumnIndex(colStr);
+
+        this.selectedIds.clear();
+        const minC = Math.min(startCol, endCol);
+        const maxC = Math.max(startCol, endCol);
+
+        for (let c = minC; c <= maxC; c++) {
+            const cL = columnIndexToLetters(c);
+            for (let r = 1; r <= this.state.maxRow; r++) {
+                this.selectedIds.add(`${cL}${r}`);
+            }
+        }
+        this.renderSelection();
+        this.onSelectionChange?.(this.activeCellId);
+    }
+
+    public expandRowSelection(rowNum: number) {
+        if (!this.activeCellId) {
+            this.selectRow(rowNum);
+            return;
+        }
+        const match = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return;
+
+        const startRow = parseInt(match[2], 10);
+
+        this.selectedIds.clear();
+        const minR = Math.min(startRow, rowNum);
+        const maxR = Math.max(startRow, rowNum);
+        const cols = this.state.getColumnLetters();
+
+        for (let r = minR; r <= maxR; r++) {
+            for (const c of cols) {
+                this.selectedIds.add(`${c}${r}`);
+            }
+        }
+        this.renderSelection();
+        this.onSelectionChange?.(this.activeCellId);
+    }
+
     private clearSelection() {
         this.selectedIds.clear();
         this.activeCellId = null;
@@ -327,6 +386,7 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
         this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
+        this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
     }
 
     public renderSelection() {
@@ -334,6 +394,7 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
         this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
+        this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
 
         for (const id of this.selectedIds) {
             const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`);
@@ -481,5 +542,6 @@ export class SelectionManager {
         this.wrapper.removeEventListener('mouseover', this.onMouseOver);
         window.removeEventListener('mouseup', this.onMouseUp);
         this.wrapper.removeEventListener('keydown', this.onKeyDown);
+        document.removeEventListener('mousedown', this.onDocumentMouseDown);
     }
 }

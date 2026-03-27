@@ -234,6 +234,12 @@ export const renderTableUI = (
         const tsv = tsvRows.join('\n');
         void navigator.clipboard.writeText(tsv);
         pluginClipboard = { text: tsv, matrix, minC, minR };
+
+        wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
+        selectedIds.forEach((id) => {
+            const td = wrapper.querySelector(`td[data-cell-id="${id}"]`);
+            if (td) td.classList.add('is-copied-highlight');
+        });
         return true;
     };
 
@@ -534,8 +540,12 @@ export const renderTableUI = (
             const th = hr.createEl('th', { text: c, cls: 'live-formula-col-head' });
             th.style.cursor = 'pointer';
 
-            th.addEventListener('click', () => {
-                selectionManager.selectColumn(c);
+            th.addEventListener('click', (e) => {
+                if (e.shiftKey) {
+                    selectionManager.expandColumnSelection(c);
+                } else {
+                    selectionManager.selectColumn(c);
+                }
                 wrapper.focus();
             });
 
@@ -588,8 +598,12 @@ export const renderTableUI = (
             const rHead = tr.createEl('td', { text: r.toString(), cls: 'live-formula-row-head' });
             rHead.style.cursor = 'pointer';
 
-            rHead.addEventListener('click', () => {
-                selectionManager.selectRow(r);
+            rHead.addEventListener('click', (e) => {
+                if (e.shiftKey) {
+                    selectionManager.expandRowSelection(r);
+                } else {
+                    selectionManager.selectRow(r);
+                }
                 wrapper.focus();
             });
 
@@ -646,8 +660,21 @@ export const renderTableUI = (
 
             td.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
+                selectionManager.restoreSelection(cellId, [cellId]);
+                wrapper.focus();
                 const colIdx = lettersToColumnIndex(c);
                 const menu = new Menu();
+
+                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
+                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
+                menu.addItem((i) =>
+                    i.setTitle('Paste').onClick(async () => {
+                        const text = await navigator.clipboard.readText();
+                        if (text) executePaste(text);
+                    })
+                );
+                menu.addSeparator();
+
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Above').onClick(() => {
                         Actions.insertRow(state, r);
@@ -691,6 +718,7 @@ export const renderTableUI = (
                         rerender();
                     })
                 );
+
                 menu.showAtMouseEvent(e);
             });
         }
