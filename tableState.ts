@@ -94,7 +94,12 @@ export class TableState {
     maxRow = 1;
     maxCol = 1;
     dirty = false;
-    public tableName = '';
+
+    // FIX: Track if the dependency graph needs rebuilding
+    structureDirty = true;
+
+    // FIX: Unique id per table; legacy tables without meta get one on first load
+    public tableName = Math.random().toString(36).slice(2, 9);
 
     markDirty(): void {
         this.dirty = true;
@@ -117,6 +122,13 @@ export class TableState {
             if (col > this.maxCol) this.maxCol = col;
         }
         if (!data.format) data.format = emptyFormat();
+
+        // FIX: Formula add/remove/edit requires graph rebuild; plain value edits do not
+        const existing = this.cells.get(id);
+        if (!existing || existing.formula !== data.formula) {
+            this.structureDirty = true;
+        }
+
         this.cells.set(id, data);
     }
 

@@ -1,12 +1,12 @@
 import { Parser } from 'expr-eval';
 import { TableState, lettersToColumnIndex, columnIndexToLetters } from './tableState';
+import { DependencyGraph, extractCellRefsFromFormula, topologicalSortFormulaCells } from './dependencyGraph';
 import {
-    DependencyGraph,
-    extractCellRefsFromFormula,
+    maskFormulaStrings,
     maskScientificNotation,
-    topologicalSortFormulaCells,
+    unmaskFormulaStrings,
     unmaskScientificNotation,
-} from './dependencyGraph';
+} from './formulaMasking';
 
 function replaceBareCellRefs(expr: string): string {
     let result = '';
@@ -63,11 +63,8 @@ export function formulaToExpr(formula: string): string {
     let body = raw.startsWith('=') ? raw.slice(1) : raw;
 
     // 1. Mask strings BEFORE toUpperCase() to preserve case-sensitivity
-    const stringTokens: string[] = [];
-    body = body.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, (match) => {
-        stringTokens.push(match);
-        return `"__STR${stringTokens.length - 1}__"`;
-    });
+    const { text: bodyMasked, tokens: stringTokens } = maskFormulaStrings(body);
+    body = bodyMasked;
 
     // 2. Mask scientific notation
     const { text: masked, tokens } = maskScientificNotation(body);
@@ -148,7 +145,7 @@ export function formulaToExpr(formula: string): string {
     }
 
     // 8. Unmask strings back to their original case
-    e = e.replace(/"__STR(\d+)__"/g, (_, i) => stringTokens[parseInt(i, 10)]);
+    e = unmaskFormulaStrings(e, stringTokens);
 
     return e;
 }
@@ -340,7 +337,12 @@ export class MathEngine {
     }
 
     updateCellAndDependents(startCellId: string): { updated: string[]; cyclic: boolean } {
-        this.rebuildDependentsFromState();
+        // FIX: Only rebuild graph if formulas changed or the graph is empty
+        if (this.state.structureDirty || this.dependencyGraph.dependents.size === 0) {
+            this.rebuildDependentsFromState();
+            this.state.structureDirty = false;
+        }
+
         const affected = this.dependencyGraph.getTransitiveDependents(startCellId);
         if (affected.size === 0) {
             return { updated: [], cyclic: false };

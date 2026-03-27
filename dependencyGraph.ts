@@ -1,22 +1,7 @@
 import { type TableState, columnIndexToLetters, lettersToColumnIndex } from './tableState';
+import { maskFormulaStrings, maskScientificNotation } from './formulaMasking';
 
-/** Masks scientific notation so `1e-3` is not mistaken for cell E3. */
-export function maskScientificNotation(input: string): { text: string; tokens: string[] } {
-    const tokens: string[] = [];
-    const text = input.replace(/\d+(\.\d+)?[Ee][+-]?\d+/g, (match) => {
-        tokens.push(match);
-        return `__SCI_${tokens.length}__`;
-    });
-    return { text, tokens };
-}
-
-export function unmaskScientificNotation(text: string, tokens: string[]): string {
-    let out = text;
-    for (let i = 0; i < tokens.length; i++) {
-        out = out.split(`__SCI_${i + 1}__`).join(tokens[i]);
-    }
-    return out;
-}
+export { maskScientificNotation, unmaskScientificNotation } from './formulaMasking';
 
 /**
  * All cell ids (uppercase) referenced by a formula string.
@@ -25,7 +10,8 @@ export function unmaskScientificNotation(text: string, tokens: string[]): string
 export function extractCellRefsFromFormula(formula: string): string[] {
     const refs = new Set<string>();
     const body = (formula.trim().startsWith('=') ? formula.trim().slice(1) : formula.trim()).trim();
-    const { text: masked } = maskScientificNotation(body);
+    const { text: afterStrings } = maskFormulaStrings(body);
+    const { text: masked } = maskScientificNotation(afterStrings);
     const u = masked.toUpperCase();
 
     let m: RegExpExecArray | null;

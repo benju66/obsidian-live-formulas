@@ -102,18 +102,28 @@ export default class LiveFormulasPlugin extends Plugin {
                         let foundStart = -1;
                         let foundEnd = -1;
 
-                        // Search backwards and forwards near the expected location
+                        // FIX: Locate this exact table using its unique metadata ID
+                        const tableIdString = state.tableName ? `"tableName":"${state.tableName}"` : '';
+
+                        // Search backwards near the expected location
                         for (let i = sectionHint.lineStart; i >= 0 && i < lines.length; i--) {
                             if (lines[i].trimStart().startsWith('```live-table')) {
-                                foundStart = i;
-                                break;
+                                const nextLine = lines[i + 1] || '';
+                                if (!tableIdString || nextLine.includes(tableIdString)) {
+                                    foundStart = i;
+                                    break;
+                                }
                             }
                         }
+                        // Search forwards if not found backwards
                         if (foundStart === -1) {
                             for (let i = sectionHint.lineStart + 1; i < lines.length; i++) {
                                 if (lines[i].trimStart().startsWith('```live-table')) {
-                                    foundStart = i;
-                                    break;
+                                    const nextLine = lines[i + 1] || '';
+                                    if (!tableIdString || nextLine.includes(tableIdString)) {
+                                        foundStart = i;
+                                        break;
+                                    }
                                 }
                             }
                         }

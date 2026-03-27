@@ -1,16 +1,19 @@
 import { TableState, CellData, columnIndexToLetters, lettersToColumnIndex } from './tableState';
+import { transformFormulaPreservingLiterals } from './formulaMasking';
 
 export const shiftFormulaByOffset = (formula: string, colOffset: number, rowOffset: number): string => {
-    return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
-        let c = lettersToColumnIndex(colStr.toUpperCase());
-        let r = parseInt(rowStr, 10);
+    return transformFormulaPreservingLiterals(formula, (masked) =>
+        masked.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
+            let c = lettersToColumnIndex(colStr.toUpperCase());
+            let r = parseInt(rowStr, 10);
 
-        if (colAnchor !== '$') c += colOffset;
-        if (rowAnchor !== '$') r += rowOffset;
+            if (colAnchor !== '$') c += colOffset;
+            if (rowAnchor !== '$') r += rowOffset;
 
-        if (r < 1 || c < 1) return '#REF!';
-        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
-    });
+            if (r < 1 || c < 1) return '#REF!';
+            return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
+        })
+    );
 };
 
 /**
@@ -18,23 +21,25 @@ export const shiftFormulaByOffset = (formula: string, colOffset: number, rowOffs
  * respecting Excel-style absolute anchors ($A$1, $A1, A$1).
  */
 export const shiftFormulaReferences = (formula: string, type: 'row' | 'col', threshold: number, amount: number): string => {
-    return formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
-        let c = lettersToColumnIndex(colStr.toUpperCase());
-        let r = parseInt(rowStr, 10);
+    return transformFormulaPreservingLiterals(formula, (masked) =>
+        masked.replace(/(\$?)([A-Z]+)(\$?)(\d+)\b/gi, (match, colAnchor, colStr, rowAnchor, rowStr) => {
+            let c = lettersToColumnIndex(colStr.toUpperCase());
+            let r = parseInt(rowStr, 10);
 
-        const isColAbsolute = colAnchor === '$';
-        const isRowAbsolute = rowAnchor === '$';
+            const isColAbsolute = colAnchor === '$';
+            const isRowAbsolute = rowAnchor === '$';
 
-        if (type === 'row' && r >= threshold && !isRowAbsolute) {
-            r += amount;
-        } else if (type === 'col' && c >= threshold && !isColAbsolute) {
-            c += amount;
-        }
+            if (type === 'row' && r >= threshold && !isRowAbsolute) {
+                r += amount;
+            } else if (type === 'col' && c >= threshold && !isColAbsolute) {
+                c += amount;
+            }
 
-        if (r < 1 || c < 1) return '#REF!';
+            if (r < 1 || c < 1) return '#REF!';
 
-        return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
-    });
+            return `${colAnchor}${columnIndexToLetters(c)}${rowAnchor}${r}`;
+        })
+    );
 };
 
 function cloneCell(c: CellData): CellData {
