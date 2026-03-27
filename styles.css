@@ -296,6 +296,7 @@
 
 /* Dual-Layer Grid Styling */
 td.live-formula-cell {
+    position: relative;
     padding: 8px 12px;
     cursor: cell;
     user-select: none; /* Prevents native text highlighting when dragging the grid */
@@ -309,4 +310,22 @@ td.live-formula-cell.is-selected {
 td.live-formula-cell.is-active-cell {
     box-shadow: inset 0 0 0 2px var(--interactive-accent);
     background-color: var(--background-primary);
+}
+
+td.live-formula-cell.is-fill-highlight {
+    background-color: rgba(var(--color-accent-rgb, 100, 150, 255), 0.1);
+    border: 1px dashed var(--interactive-accent);
+}
+
+.live-formula-drag-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    height: 7px;
+    background: var(--interactive-accent);
+    border-radius: 2px 0 0 0;
+    cursor: crosshair;
+    z-index: 2;
+    box-sizing: border-box;
 }

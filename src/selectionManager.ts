@@ -5,11 +5,14 @@ export class SelectionManager {
     public onSelectionChange: ((activeId: string | null) => void) | null = null;
     public onUndo: (() => void) | null = null;
     public onRedo: (() => void) | null = null;
+    public onFillRange: ((sourceId: string, targetIds: string[]) => void) | null = null;
 
     private selectedIds = new Set<string>();
     private activeCellId: string | null = null;
     private isDragging = false;
     private startDragId: string | null = null;
+    private isFilling = false;
+    private fillTargetIds = new Set<string>();
 
     public getActiveCellId() {
         return this.activeCellId;
@@ -106,6 +109,15 @@ export class SelectionManager {
         if (e.button !== 0) return;
 
         const target = e.target as HTMLElement;
+        // Detect click on the drag handle
+        if (target.classList.contains('live-formula-drag-handle')) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.isFilling = true;
+            this.fillTargetIds.clear();
+            return;
+        }
+
         const td = target.closest('.live-formula-cell') as HTMLElement;
 
         // 1. Handling click when the floating cell editor is active
@@ -202,21 +214,59 @@ export class SelectionManager {
     };
 
     private onMouseOver = (e: MouseEvent) => {
-        if (!this.isDragging || !this.startDragId) return;
-
         const target = e.target as HTMLElement;
         const td = target.closest('.live-formula-cell') as HTMLElement;
         if (!td) return;
-
         const hoverId = td.getAttribute('data-cell-id');
         if (!hoverId) return;
 
-        this.selectRange(this.startDragId, hoverId);
-        this.onSelectionChange?.(this.activeCellId);
+        if (this.isFilling && this.activeCellId) {
+            this.fillTargetIds.clear();
+            const match1 = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+            const match2 = hoverId.match(/^([A-Z]+)(\d+)$/i);
+            if (!match1 || !match2) return;
+
+            const c1 = lettersToColumnIndex(match1[1]);
+            const r1 = parseInt(match1[2], 10);
+            const c2 = lettersToColumnIndex(match2[1]);
+            const r2 = parseInt(match2[2], 10);
+
+            // Force straight lines (vertical or horizontal only)
+            if (Math.abs(c2 - c1) > Math.abs(r2 - r1)) {
+                // Horizontal fill
+                const minC = Math.min(c1, c2);
+                const maxC = Math.max(c1, c2);
+                for (let c = minC; c <= maxC; c++) {
+                    this.fillTargetIds.add(`${columnIndexToLetters(c)}${r1}`);
+                }
+            } else {
+                // Vertical fill
+                const minR = Math.min(r1, r2);
+                const maxR = Math.max(r1, r2);
+                for (let r = minR; r <= maxR; r++) {
+                    this.fillTargetIds.add(`${columnIndexToLetters(c1)}${r}`);
+                }
+            }
+            this.renderSelection();
+            return;
+        }
+
+        if (this.isDragging && this.startDragId) {
+            this.selectRange(this.startDragId, hoverId);
+            this.onSelectionChange?.(this.activeCellId);
+        }
     };
 
     private onMouseUp = () => {
         this.isDragging = false;
+        if (this.isFilling) {
+            this.isFilling = false;
+            if (this.fillTargetIds.size > 0 && this.activeCellId && this.onFillRange) {
+                this.onFillRange(this.activeCellId, Array.from(this.fillTargetIds));
+            }
+            this.fillTargetIds.clear();
+            this.renderSelection();
+        }
     };
 
     private selectRange(startId: string, endId: string) {
@@ -248,18 +298,41 @@ export class SelectionManager {
     private clearSelection() {
         this.selectedIds.clear();
         this.activeCellId = null;
+        this.isFilling = false;
+        this.fillTargetIds.clear();
         this.onSelectionChange?.(null);
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
+        this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
+        this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
     }
 
     public renderSelection() {
+        // Clean up old selection UI
         this.wrapper.querySelectorAll('.is-selected').forEach((el) => el.classList.remove('is-selected', 'is-active-cell'));
+        this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
+        this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
 
         for (const id of this.selectedIds) {
             const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`);
             if (td) {
                 td.classList.add('is-selected');
-                if (id === this.activeCellId) td.classList.add('is-active-cell');
+                if (id === this.activeCellId) {
+                    td.classList.add('is-active-cell');
+                    // Inject the drag handle if only one cell is selected
+                    if (this.selectedIds.size === 1) {
+                        const handle = document.createElement('div');
+                        handle.className = 'live-formula-drag-handle';
+                        td.appendChild(handle);
+                    }
+                }
+            }
+        }
+
+        // Render fill highlight
+        for (const id of this.fillTargetIds) {
+            const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`);
+            if (td && id !== this.activeCellId) {
+                td.classList.add('is-fill-highlight');
             }
         }
     }

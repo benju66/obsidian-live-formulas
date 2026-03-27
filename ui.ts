@@ -170,6 +170,39 @@ export const renderTableUI = (
         saveWithHistory();
     });
 
+    // Handle Drag-to-Fill execution
+    selectionManager.onFillRange = (sourceId: string, targetIds: string[]) => {
+        let changed = false;
+        const cellsToRefresh = new Set<string>();
+
+        for (const targetId of targetIds) {
+            if (targetId !== sourceId) {
+                Actions.fillFormulaToRange(state, sourceId, targetId);
+                changed = true;
+                cellsToRefresh.add(targetId);
+            }
+        }
+
+        if (changed) {
+            const toProcess = [...cellsToRefresh];
+            for (let i = 0; i < toProcess.length; i++) {
+                const id = toProcess[i];
+                const { updated } = engine.updateCellAndDependents(id);
+                for (const depId of updated) {
+                    if (!cellsToRefresh.has(depId)) {
+                        cellsToRefresh.add(depId);
+                        toProcess.push(depId);
+                    }
+                }
+            }
+
+            cellsToRefresh.forEach((id) => refreshCellDisplay(id));
+
+            selectionManager.restoreSelection(sourceId, targetIds);
+            saveWithHistory();
+        }
+    };
+
     const statefulEl = el as HTMLElement & {
         __liveTableSelection?: { activeCellId: string | null; selectedIds: string[] };
     };
