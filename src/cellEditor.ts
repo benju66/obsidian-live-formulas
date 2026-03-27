@@ -74,26 +74,38 @@ export class CellEditor {
         this.onInput?.(this.el.value);
     }
 
-    public open(cellId: string, td: HTMLElement) {
+    public open(cellId: string, td: HTMLElement, shouldFocus: boolean = true) {
         this.activeCellId = cellId;
         this.activeTd = td;
 
-        const cell = this.state.getCell(cellId);
-        const raw = cell !== undefined ? (cell.formula !== undefined ? cell.formula : cell.value) : '';
-        this.el.value = raw === undefined || raw === null ? '' : raw.toString();
-
+        const rect = td.getBoundingClientRect();
         const wrapperRect = this.wrapper.getBoundingClientRect();
-        const tdRect = td.getBoundingClientRect();
 
+        this.el.style.top = `${rect.top - wrapperRect.top + this.wrapper.scrollTop}px`;
+        this.el.style.left = `${rect.left - wrapperRect.left + this.wrapper.scrollLeft}px`;
+        this.el.style.width = `${Math.max(rect.width, 120)}px`;
+        this.el.style.height = `${Math.max(rect.height, 28)}px`;
         this.el.style.display = 'block';
-        this.el.style.top = `${tdRect.top - wrapperRect.top + this.wrapper.scrollTop}px`;
-        this.el.style.left = `${tdRect.left - wrapperRect.left + this.wrapper.scrollLeft}px`;
-        this.el.style.width = `${tdRect.width + 1}px`;
-        this.el.style.height = `${tdRect.height + 1}px`;
 
-        this.el.focus();
-        this.el.setSelectionRange(this.el.value.length, this.el.value.length);
+        const cell = this.state.getCell(cellId);
+        let valStr = '';
+        if (cell) {
+            valStr =
+                cell.formula !== undefined
+                    ? cell.formula
+                    : cell.value !== undefined && cell.value !== null
+                      ? String(cell.value)
+                      : '';
+        }
+        this.el.value = valStr;
+
         this.onInput?.(this.el.value);
+
+        if (shouldFocus) {
+            this.el.focus();
+            const len = this.el.value.length;
+            this.el.setSelectionRange(len, len);
+        }
     }
 
     public commitAndClose(moveDirection?: CellEditorMoveDirection) {

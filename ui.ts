@@ -482,7 +482,7 @@ export const renderTableUI = (
             if (activeId) {
                 const td = wrapper.querySelector(`td[data-cell-id="${activeId}"]`) as HTMLElement;
                 if (td) {
-                    cellEditor.open(activeId, td);
+                    cellEditor.open(activeId, td, false);
                     syncRef.fromBar = true;
                     cellEditor.el.value = val;
                     syncRef.fromBar = false;
@@ -737,6 +737,12 @@ export const renderTableUI = (
             e.preventDefault();
             const activeId = selectionManager.getActiveCellId();
             if (!activeId) return;
+
+            if (cellEditor.el.style.display === 'block') {
+                cellEditor.commitAndClose();
+                wrapper.focus();
+                return;
+            }
 
             let newValue = formulaBarInput.value.trim();
             newValue = balanceFormulaParens(newValue);
