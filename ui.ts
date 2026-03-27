@@ -459,6 +459,14 @@ export const renderTableUI = (
             state.markDirty();
             lastSnapshot = captureSnapshot();
             saveStateToFile();
+
+            const cache = {
+                activeCellId: selectionManager.getActiveCellId(),
+                selectedIds: selectionManager.getSelectedIds(),
+            };
+            statefulEl.__liveTableSelection = cache;
+            recentSelectionCache = { timestamp: Date.now(), ...cache };
+
             rerender();
         }
     };
@@ -471,6 +479,14 @@ export const renderTableUI = (
             state.markDirty();
             lastSnapshot = captureSnapshot();
             saveStateToFile();
+
+            const cache = {
+                activeCellId: selectionManager.getActiveCellId(),
+                selectedIds: selectionManager.getSelectedIds(),
+            };
+            statefulEl.__liveTableSelection = cache;
+            recentSelectionCache = { timestamp: Date.now(), ...cache };
+
             rerender();
         }
     };
@@ -557,7 +573,10 @@ export const renderTableUI = (
 
             th.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                selectionManager.selectColumn(c);
+                const selectedCols = new Set(selectionManager.getSelectedIds().map((id) => id.match(/[A-Z]+/)?.[0]));
+                if (!selectedCols.has(c)) {
+                    selectionManager.selectColumn(c);
+                }
                 wrapper.focus();
                 const colIdx = lettersToColumnIndex(c);
                 const menu = new Menu();
@@ -571,6 +590,16 @@ export const renderTableUI = (
                     })
                 );
                 menu.addSeparator();
+
+                const colsToDelete = Array.from(
+                    new Set(
+                        selectionManager.getSelectedIds().map((id) => lettersToColumnIndex(id.match(/[A-Z]+/)?.[0] || 'A'))
+                    )
+                )
+                    .filter((n) => n > 0)
+                    .sort((a, b) => b - a);
+
+                const deleteLabel = colsToDelete.length > 1 ? `Delete ${colsToDelete.length} Columns` : 'Delete Column';
 
                 menu.addItem((i) =>
                     i.setTitle('Insert Column Left').onClick(() => {
@@ -587,8 +616,8 @@ export const renderTableUI = (
                     })
                 );
                 menu.addItem((i) =>
-                    i.setTitle('Delete Column').onClick(() => {
-                        Actions.deleteCol(state, colIdx);
+                    i.setTitle(deleteLabel).onClick(() => {
+                        colsToDelete.forEach((cIdx) => Actions.deleteCol(state, cIdx));
                         saveWithHistory();
                         rerender();
                     })
@@ -619,7 +648,10 @@ export const renderTableUI = (
 
             rHead.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                selectionManager.selectRow(r);
+                const selectedRows = new Set(selectionManager.getSelectedIds().map((id) => id.match(/\d+/)?.[0]));
+                if (!selectedRows.has(r.toString())) {
+                    selectionManager.selectRow(r);
+                }
                 wrapper.focus();
                 const menu = new Menu();
 
@@ -632,6 +664,14 @@ export const renderTableUI = (
                     })
                 );
                 menu.addSeparator();
+
+                const rowsToDelete = Array.from(
+                    new Set(selectionManager.getSelectedIds().map((id) => parseInt(id.match(/\d+/)?.[0] || '0', 10)))
+                )
+                    .filter((n) => n > 0)
+                    .sort((a, b) => b - a);
+
+                const deleteLabel = rowsToDelete.length > 1 ? `Delete ${rowsToDelete.length} Rows` : 'Delete Row';
 
                 menu.addItem((i) =>
                     i.setTitle('Insert Row Above').onClick(() => {
@@ -648,8 +688,8 @@ export const renderTableUI = (
                     })
                 );
                 menu.addItem((i) =>
-                    i.setTitle('Delete Row').onClick(() => {
-                        Actions.deleteRow(state, r);
+                    i.setTitle(deleteLabel).onClick(() => {
+                        rowsToDelete.forEach((rowIdx) => Actions.deleteRow(state, rowIdx));
                         saveWithHistory();
                         rerender();
                     })
