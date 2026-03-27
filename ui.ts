@@ -523,8 +523,10 @@ export const renderTableUI = (
             if (activeId) {
                 const td = wrapper.querySelector(`td[data-cell-id="${activeId}"]`) as HTMLElement;
                 if (td) {
-                    cellEditor.open(activeId, td, false);
+                    // FIX: Engage the sync lock BEFORE opening the cell editor
+                    // to prevent its initialization from wiping the formula bar input.
                     syncRef.fromBar = true;
+                    cellEditor.open(activeId, td, false);
                     cellEditor.el.value = val;
                     syncRef.fromBar = false;
                 }
