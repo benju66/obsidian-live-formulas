@@ -198,6 +198,43 @@ export const renderTableUI = (
         }
     };
 
+    // Intercept keyboard shortcuts for local Undo/Redo (capture: run before SelectionManager bubble handler; stopImmediatePropagation avoids double-undo)
+    wrapper.addEventListener(
+        'keydown',
+        (e) => {
+            if (document.activeElement?.classList.contains('live-formula-formula-bar-input')) return;
+            const key = e.key.toLowerCase();
+            // Detect Undo (Ctrl+Z or Cmd+Z)
+            if (key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+                // Let the cell editor handle its own text undo if it's currently open and focused
+                if (cellEditor.el.style.display === 'block' && document.activeElement === cellEditor.el) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                selectionManager.onUndo?.();
+                return;
+            }
+
+            // Detect Redo (Ctrl+Y or Cmd+Shift+Z)
+            if (
+                (key === 'y' && (e.ctrlKey || e.metaKey)) ||
+                (key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)
+            ) {
+                if (cellEditor.el.style.display === 'block' && document.activeElement === cellEditor.el) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                selectionManager.onRedo?.();
+                return;
+            }
+        },
+        true
+    );
+
     formulaBarInput.addEventListener('input', (e) => {
         const val = (e.target as HTMLInputElement).value;
         if (cellEditor.el.style.display === 'block') {
