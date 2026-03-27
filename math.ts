@@ -213,7 +213,11 @@ export class MathEngine {
         };
 
         // 3. Register Logical Functions
-        this.parser.functions.IF = (condition: unknown, trueVal: unknown, falseVal: unknown) => {
+        this.parser.functions.IF = (...args: unknown[]) => {
+            const condition = args[0];
+            const trueVal = args.length > 1 ? args[1] : true;
+            const falseVal = args.length > 2 ? args[2] : false;
+
             if (typeof condition === 'string' && condition.startsWith('#')) throw new Error(condition);
             return condition ? trueVal : falseVal;
         };
@@ -228,13 +232,12 @@ export class MathEngine {
         this.parser.functions.NOW = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
 
         // 5. Lookup & Reference (VLOOKUP)
-        this.parser.functions.VLOOKUP = (
-            lookupValue: unknown,
-            rangeStr: string,
-            colIndex: number,
-            _exactMatch = false
-        ) => {
-            const cleanRange = String(rangeStr).replace(/['"]/g, '').replace(/\$/g, '');
+        this.parser.functions.VLOOKUP = (...args: unknown[]) => {
+            const lookupValue = args[0];
+            const rangeStr = String(args[1] || '');
+            const colIndex = Number(args[2]) || 1;
+
+            const cleanRange = rangeStr.replace(/['"]/g, '').replace(/\$/g, '');
             const match = cleanRange.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
             if (!match) return '#N/A';
 
@@ -271,7 +274,7 @@ export class MathEngine {
     private extractCellValue(value: unknown): number | string {
         if (typeof value === 'number' && !isNaN(value)) return value;
         if (typeof value === 'string') {
-            const stripped = value.replace(/,/g, '');
+            const stripped = value.replace(/[,\s$€£]/g, '');
             const n = Number(stripped);
             return isNaN(n) || stripped === '' ? value : n;
         }
