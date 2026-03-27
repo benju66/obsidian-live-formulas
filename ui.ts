@@ -544,6 +544,7 @@ export const renderTableUI = (
             th.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
+                e.stopPropagation();
                 if (e.shiftKey) {
                     selectionManager.expandColumnSelection(c);
                 } else {
@@ -605,6 +606,7 @@ export const renderTableUI = (
             rHead.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
+                e.stopPropagation();
                 if (e.shiftKey) {
                     selectionManager.expandRowSelection(r);
                 } else {

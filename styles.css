@@ -356,6 +356,21 @@ td.live-formula-cell.is-copied-highlight {
     z-index: 5;
 }
 
+/* Subtle highlight for headers intersecting the active cell */
+.is-active-header {
+    background-color: var(--background-modifier-hover) !important;
+    color: var(--text-normal) !important;
+}
+
+/* Excel-style accent lines for the active intersection */
+th.live-formula-col-head.is-active-header {
+    border-bottom: 2px solid var(--interactive-accent) !important;
+}
+td.live-formula-row-head.is-active-header {
+    border-right: 2px solid var(--interactive-accent) !important;
+}
+
+/* Full highlight when entire row/col is selected */
 .is-selected-header {
     background-color: rgba(var(--color-accent-rgb, 100, 150, 255), 0.25) !important;
     color: var(--text-normal) !important;

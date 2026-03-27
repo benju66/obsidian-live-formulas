@@ -387,7 +387,9 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
         this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
-        this.wrapper.querySelectorAll('.is-selected-header').forEach((el) => el.classList.remove('is-selected-header'));
+        this.wrapper.querySelectorAll('.is-selected-header, .is-active-header').forEach((el) => {
+            el.classList.remove('is-selected-header', 'is-active-header');
+        });
     }
 
     public renderSelection() {
@@ -397,28 +399,55 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
         this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
 
-        this.wrapper.querySelectorAll('.is-selected-header').forEach((el) => el.classList.remove('is-selected-header'));
+        this.wrapper.querySelectorAll('.is-selected-header, .is-active-header').forEach((el) => {
+            el.classList.remove('is-selected-header', 'is-active-header');
+        });
 
-        const selectedCols = new Set<string>();
-        const selectedRows = new Set<string>();
+        const colCounts = new Map<string, number>();
+        const rowCounts = new Map<string, number>();
 
         for (const id of this.selectedIds) {
             const match = id.match(/^([A-Z]+)(\d+)$/i);
             if (match) {
-                selectedCols.add(match[1]);
-                selectedRows.add(match[2]);
+                colCounts.set(match[1], (colCounts.get(match[1]) || 0) + 1);
+                rowCounts.set(match[2], (rowCounts.get(match[2]) || 0) + 1);
             }
         }
 
-        selectedCols.forEach((c) => {
-            const th = this.wrapper.querySelector(`th[data-header-col="${c}"]`);
-            if (th) th.classList.add('is-selected-header');
+        const maxRow = this.state.maxRow;
+        const numCols = this.state.getColumnLetters().length;
+
+        colCounts.forEach((count, col) => {
+            if (count === maxRow) {
+                const th = this.wrapper.querySelector(`th[data-header-col="${col}"]`);
+                if (th) th.classList.add('is-selected-header');
+            }
         });
 
-        selectedRows.forEach((rowStr) => {
-            const td = this.wrapper.querySelector(`td[data-header-row="${rowStr}"]`);
-            if (td) td.classList.add('is-selected-header');
+        rowCounts.forEach((count, row) => {
+            if (count === numCols) {
+                const td = this.wrapper.querySelector(`td[data-header-row="${row}"]`);
+                if (td) td.classList.add('is-selected-header');
+            }
         });
+
+        if (this.activeCellId) {
+            const match = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+            if (match) {
+                const activeCol = match[1];
+                const activeRow = match[2];
+
+                if (colCounts.get(activeCol) !== maxRow) {
+                    const th = this.wrapper.querySelector(`th[data-header-col="${activeCol}"]`);
+                    if (th) th.classList.add('is-active-header');
+                }
+
+                if (rowCounts.get(activeRow) !== numCols) {
+                    const td = this.wrapper.querySelector(`td[data-header-row="${activeRow}"]`);
+                    if (td) td.classList.add('is-active-header');
+                }
+            }
+        }
 
         for (const id of this.selectedIds) {
             const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`);
