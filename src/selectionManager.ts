@@ -331,7 +331,11 @@ export class SelectionManager {
             e.preventDefault();
             for (const id of this.selectedIds) {
                 const cell = this.state.getCell(id);
-                this.state.setCell(id, { value: '', formula: undefined, format: cell?.format });
+                this.state.setCell(id, {
+                    value: '',
+                    formula: undefined,
+                    format: cell?.format || {},
+                });
                 const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`) as HTMLElement;
                 if (td) td.textContent = '';
             }
