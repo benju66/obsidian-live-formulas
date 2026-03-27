@@ -391,23 +391,6 @@ export class SelectionManager {
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-        if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
-            e.preventDefault();
-            e.stopPropagation(); // Block Obsidian native undo
-            if (e.shiftKey) {
-                this.onRedo?.();
-            } else {
-                this.onUndo?.();
-            }
-            return;
-        }
-        if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
-            e.preventDefault();
-            e.stopPropagation(); // Block Obsidian native redo
-            this.onRedo?.();
-            return;
-        }
-
         if (e.key === 'Tab') {
             e.preventDefault();
             this.moveActiveCell(e.shiftKey ? 'Left' : 'Right');

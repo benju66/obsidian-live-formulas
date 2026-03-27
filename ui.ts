@@ -264,8 +264,43 @@ export const renderTableUI = (
         const startCol = lettersToColumnIndex(match[1]);
         const startRow = parseInt(match[2], 10);
 
+        let requiredRows = startRow;
+        let requiredCols = startCol;
+
+        if (pluginClipboard && pluginClipboard.text === text) {
+            requiredRows = startRow + pluginClipboard.matrix.length - 1;
+            requiredCols = startCol + (pluginClipboard.matrix[0]?.length || 1) - 1;
+        } else {
+            const rows = text.split(/\r?\n/);
+            const validRows = rows[rows.length - 1] === '' ? rows.length - 1 : rows.length;
+            requiredRows = startRow + validRows - 1;
+
+            let maxColsInText = 0;
+            for (let i = 0; i < validRows; i++) {
+                maxColsInText = Math.max(maxColsInText, rows[i].split('\t').length);
+            }
+            requiredCols = startCol + maxColsInText - 1;
+        }
+
+        requiredRows = Math.min(requiredRows, 200);
+        requiredCols = Math.min(requiredCols, 200);
+
+        let didExpand = false;
+        while (state.maxRow < requiredRows) {
+            Actions.insertRow(state, state.maxRow + 1);
+            didExpand = true;
+        }
+        while (state.maxCol < requiredCols) {
+            Actions.insertCol(state, state.maxCol + 1, state.maxRow);
+            didExpand = true;
+        }
+
+        if (didExpand) {
+            state.recalculateExtents();
+        }
+
         const cellsToRefresh = new Set<string>();
-        let needsRerender = false;
+        let needsRerender = didExpand;
 
         if (pluginClipboard && pluginClipboard.text === text) {
             const matrix = pluginClipboard.matrix;

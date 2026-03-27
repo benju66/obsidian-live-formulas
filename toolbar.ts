@@ -1,5 +1,3 @@
-import { Menu } from 'obsidian';
-
 /**
  * Format actions invoke `onFormat`; the host (ui.ts) applies them to the active cell
  * or to every id in `selectedCellIds` when bulk Ctrl/Cmd selection is active.
@@ -43,20 +41,6 @@ export class TableToolbar {
 
         this.el.createEl('div', { cls: 'live-formula-toolbar-divider' });
 
-        createBtn('fx', (e) => {
-            const menu = new Menu();
-            menu.addItem((i) =>
-                i.setTitle('Sum Range').onClick(() => {
-                    if (this.activeInput) this.activeInput.value = '=SUM(B1:B5)';
-                })
-            );
-            menu.addItem((i) =>
-                i.setTitle('Basic Multiply').onClick(() => {
-                    if (this.activeInput) this.activeInput.value = '=(B1*1.05)';
-                })
-            );
-            menu.showAtMouseEvent(e);
-        });
         createBtn('H±', () => this.onFormat('toggleHeaders', null));
     }
 
