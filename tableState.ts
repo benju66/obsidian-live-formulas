@@ -69,8 +69,7 @@ function splitTableLine(line: string): string[] {
 }
 
 function parseCellText(text: string): { value: any; formula?: string } {
-    // Migration layer: seamlessly convert legacy &#124; from older saves back to standard pipes
-    const t = text.trim().replace(/&#124;/g, '|');
+    const t = text.trim().replace(/&#124;/g, '|').replace(/<br\s*\/?>/gi, '\n');
 
     if (t.startsWith('=')) {
         return { value: t, formula: t };
@@ -396,6 +395,8 @@ function stringifyCellForMarkdown(cell: CellData | undefined): string {
             rawStr = String(v);
         }
     }
+
+    rawStr = rawStr.replace(/\r?\n/g, '<br>');
 
     // Custom loop to safely escape '|' to '\|' without regex lookbehinds
     let escapedStr = '';

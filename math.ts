@@ -256,7 +256,10 @@ export class MathEngine {
                 const searchCellId = `${columnIndexToLetters(minC)}${r}`;
                 const searchVal = this.lookupCell(searchCellId);
 
-                if (searchVal == lookupValue) {
+                const s1 = typeof searchVal === 'string' ? searchVal.toLowerCase() : searchVal;
+                const s2 = typeof lookupValue === 'string' ? lookupValue.toLowerCase() : lookupValue;
+
+                if (s1 == s2) {
                     const returnCellId = `${columnIndexToLetters(targetCol)}${r}`;
                     return this.lookupCell(returnCellId);
                 }

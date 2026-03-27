@@ -29,10 +29,24 @@ export const shiftFormulaReferences = (formula: string, type: 'row' | 'col', thr
             const isColAbsolute = colAnchor === '$';
             const isRowAbsolute = rowAnchor === '$';
 
-            if (type === 'row' && r >= threshold && !isRowAbsolute) {
-                r += amount;
-            } else if (type === 'col' && c >= threshold && !isColAbsolute) {
-                c += amount;
+            if (amount < 0) {
+                if (
+                    (type === 'row' && r === threshold && !isRowAbsolute) ||
+                    (type === 'col' && c === threshold && !isColAbsolute)
+                ) {
+                    return '#REF!';
+                }
+                if (type === 'row' && r > threshold && !isRowAbsolute) {
+                    r += amount;
+                } else if (type === 'col' && c > threshold && !isColAbsolute) {
+                    c += amount;
+                }
+            } else {
+                if (type === 'row' && r >= threshold && !isRowAbsolute) {
+                    r += amount;
+                } else if (type === 'col' && c >= threshold && !isColAbsolute) {
+                    c += amount;
+                }
             }
 
             if (r < 1 || c < 1) return '#REF!';
