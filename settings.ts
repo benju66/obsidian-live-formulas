@@ -11,6 +11,7 @@ export interface LiveFormulasSettings {
     toolbarVisible: boolean;
     showHeaders: boolean;
     showStatusBar: boolean;
+    showTableNames: boolean;
     defaultRows: number;
     defaultCols: number;
 }
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: LiveFormulasSettings = {
     toolbarVisible: true,
     showHeaders: true,
     showStatusBar: true,
+    showTableNames: true,
     defaultRows: 2,
     defaultCols: 2,
 };
@@ -140,6 +142,16 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.showStatusBar !== false)
                 .onChange(async (value) => {
                     this.plugin.settings.showStatusBar = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Show Table Names')
+            .setDesc('Display a title input above the table to name your spreadsheets.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.showTableNames !== false)
+                .onChange(async (value) => {
+                    this.plugin.settings.showTableNames = value;
                     await this.plugin.saveSettings();
                 }));
     }

@@ -94,6 +94,7 @@ export class TableState {
     maxRow = 1;
     maxCol = 1;
     dirty = false;
+    public tableName = '';
 
     markDirty(): void {
         this.dirty = true;
@@ -150,7 +151,8 @@ export class TableState {
     }
 
     toMarkdownText(): string {
-        const meta: LiveTableMeta = {};
+        const meta: Record<string, unknown> = {};
+        if (this.tableName) meta.tableName = this.tableName;
         for (const [id, cell] of this.cells) {
             const hasFormula = !!cell.formula;
             const fmt = cell.format || emptyFormat();
@@ -160,9 +162,9 @@ export class TableState {
                 (fmt.type && fmt.type !== 'plain') ||
                 fmt.decimals !== undefined;
             if (hasFormula || hasFormat) {
-                meta[id] = {};
-                if (hasFormula) meta[id].formula = cell.formula;
-                if (hasFormat) meta[id].format = { ...fmt };
+                (meta as LiveTableMeta)[id] = {};
+                if (hasFormula) (meta as LiveTableMeta)[id].formula = cell.formula;
+                if (hasFormat) (meta as LiveTableMeta)[id].format = { ...fmt };
             }
         }
 
@@ -208,6 +210,8 @@ export class TableState {
                 meta = {};
             }
             rest = rest.slice(metaMatch[0].length);
+            const metaJson = meta as Record<string, unknown>;
+            if (typeof metaJson.tableName === 'string') state.tableName = metaJson.tableName;
         }
 
         const tableLines = rest

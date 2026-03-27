@@ -329,3 +329,20 @@ td.live-formula-cell.is-fill-highlight {
     z-index: 2;
     box-sizing: border-box;
 }
+
+.live-formula-table-name-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-size: 1.25em;
+    font-weight: bold;
+    color: var(--text-normal);
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    outline: none;
+    font-family: var(--font-text);
+}
+
+.live-formula-table-name-input:focus {
+    box-shadow: 0 2px 0 0 var(--interactive-accent);
+}

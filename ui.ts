@@ -75,6 +75,22 @@ export const renderTableUI = (
     const wrapper = el.createEl('div', { cls: 'live-formula-wrapper' });
     const container = wrapper.createEl('div', { cls: 'live-formula-container' });
 
+    if (settings.showTableNames !== false) {
+        const nameInput = wrapper.insertBefore(document.createElement('input'), container);
+        nameInput.type = 'text';
+        nameInput.className = 'live-formula-table-name-input';
+        nameInput.placeholder = 'Untitled Table';
+        nameInput.value = state.tableName || '';
+
+        nameInput.addEventListener('input', (e) => {
+            state.tableName = (e.target as HTMLInputElement).value;
+            state.markDirty();
+        });
+        nameInput.addEventListener('blur', () => {
+            saveStateToFile();
+        });
+    }
+
     // Top Bar (Formula & Toolbar)
     const formulaBarWrapper = container.createEl('div', { cls: 'live-formula-formula-bar' });
     formulaBarWrapper.createEl('span', { text: 'fx', cls: 'live-formula-formula-bar-label' });
