@@ -69,7 +69,9 @@ function splitTableLine(line: string): string[] {
 }
 
 function parseCellText(text: string): { value: any; formula?: string } {
-    const t = text.trim();
+    // Migration layer: seamlessly convert legacy &#124; from older saves back to standard pipes
+    const t = text.trim().replace(/&#124;/g, '|');
+
     if (t.startsWith('=')) {
         return { value: t, formula: t };
     }
