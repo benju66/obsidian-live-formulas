@@ -538,9 +538,12 @@ export const renderTableUI = (
         hr.createEl('th', { cls: 'live-formula-corner-th' });
         cols.forEach((c) => {
             const th = hr.createEl('th', { text: c, cls: 'live-formula-col-head' });
+            th.setAttribute('data-header-col', c);
             th.style.cursor = 'pointer';
 
-            th.addEventListener('click', (e) => {
+            th.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
                 if (e.shiftKey) {
                     selectionManager.expandColumnSelection(c);
                 } else {
@@ -596,9 +599,12 @@ export const renderTableUI = (
         const tr = table.createEl('tr');
         if (settings.showHeaders) {
             const rHead = tr.createEl('td', { text: r.toString(), cls: 'live-formula-row-head' });
+            rHead.setAttribute('data-header-row', r.toString());
             rHead.style.cursor = 'pointer';
 
-            rHead.addEventListener('click', (e) => {
+            rHead.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
                 if (e.shiftKey) {
                     selectionManager.expandRowSelection(r);
                 } else {

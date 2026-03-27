@@ -387,6 +387,7 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
         this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
+        this.wrapper.querySelectorAll('.is-selected-header').forEach((el) => el.classList.remove('is-selected-header'));
     }
 
     public renderSelection() {
@@ -395,6 +396,29 @@ export class SelectionManager {
         this.wrapper.querySelectorAll('.live-formula-drag-handle').forEach((el) => el.remove());
         this.wrapper.querySelectorAll('.is-fill-highlight').forEach((el) => el.classList.remove('is-fill-highlight'));
         this.wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
+
+        this.wrapper.querySelectorAll('.is-selected-header').forEach((el) => el.classList.remove('is-selected-header'));
+
+        const selectedCols = new Set<string>();
+        const selectedRows = new Set<string>();
+
+        for (const id of this.selectedIds) {
+            const match = id.match(/^([A-Z]+)(\d+)$/i);
+            if (match) {
+                selectedCols.add(match[1]);
+                selectedRows.add(match[2]);
+            }
+        }
+
+        selectedCols.forEach((c) => {
+            const th = this.wrapper.querySelector(`th[data-header-col="${c}"]`);
+            if (th) th.classList.add('is-selected-header');
+        });
+
+        selectedRows.forEach((rowStr) => {
+            const td = this.wrapper.querySelector(`td[data-header-row="${rowStr}"]`);
+            if (td) td.classList.add('is-selected-header');
+        });
 
         for (const id of this.selectedIds) {
             const td = this.wrapper.querySelector(`td[data-cell-id="${id}"]`);

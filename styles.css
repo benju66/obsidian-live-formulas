@@ -76,26 +76,28 @@
     table-layout: fixed;
 }
 
+.live-formula-col-head,
+.live-formula-row-head,
+.live-formula-corner-th {
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    font-weight: 600;
+    text-align: center;
+    border: 1px solid var(--background-modifier-border);
+    padding: 4px 8px;
+    user-select: none;
+}
+
 .live-formula-corner-th {
     width: 40px;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
 }
 
 .live-formula-col-head {
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    color: var(--text-muted);
     font-size: 11px;
-    padding: 4px;
 }
 
 .live-formula-row-head {
     width: 40px;
-    text-align: center;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    color: var(--text-muted);
     font-size: 11px;
 }
 
@@ -352,4 +354,9 @@ td.live-formula-cell.is-copied-highlight {
     outline-offset: -2px;
     background-color: rgba(var(--color-accent-rgb, 100, 150, 255), 0.05);
     z-index: 5;
+}
+
+.is-selected-header {
+    background-color: rgba(var(--color-accent-rgb, 100, 150, 255), 0.25) !important;
+    color: var(--text-normal) !important;
 }
