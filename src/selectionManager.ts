@@ -295,7 +295,7 @@ export class SelectionManager {
 
         if (cmdOrCtrl && e.key.toLowerCase() === 'z') {
             e.preventDefault();
-            e.stopPropagation();
+            e.stopPropagation(); // Block Obsidian native undo
             if (e.shiftKey) {
                 this.onRedo?.();
             } else {
@@ -305,7 +305,7 @@ export class SelectionManager {
         }
         if (cmdOrCtrl && e.key.toLowerCase() === 'y') {
             e.preventDefault();
-            e.stopPropagation();
+            e.stopPropagation(); // Block Obsidian native redo
             this.onRedo?.();
             return;
         }
