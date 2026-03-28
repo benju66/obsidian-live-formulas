@@ -81,11 +81,88 @@ export default class LiveFormulasPlugin extends Plugin {
                     const md = state.toMarkdownText();
                     state.clearDirty();
 
+                    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+                    const isActiveEditor = activeView && activeView.file?.path === file.path;
+
+                    if (isActiveEditor && activeView) {
+                        const editor = activeView.editor;
+                        const blockText = '```live-table\n' + md + '\n```';
+
+                        const openLine = editor.getLine(sectionHint.lineStart) ?? '';
+                        const closeLine = editor.getLine(sectionHint.lineEnd) ?? '';
+
+                        if (
+                            openLine.trimStart().startsWith('```live-table') &&
+                            closeLine.trimStart().startsWith('```')
+                        ) {
+                            editor.replaceRange(
+                                blockText,
+                                { line: sectionHint.lineStart, ch: 0 },
+                                { line: sectionHint.lineEnd, ch: closeLine.length }
+                            );
+                            return;
+                        }
+
+                        console.log('Live Formulas: Document shifted in Editor. Dynamically locating table block...');
+                        let foundStart = -1;
+                        let foundEnd = -1;
+
+                        const tableIdString = state.tableName ? `"tableName":"${state.tableName}"` : '';
+                        const lineCount = editor.lineCount();
+
+                        for (let i = sectionHint.lineStart; i >= 0 && i < lineCount; i--) {
+                            if (editor.getLine(i).trimStart().startsWith('```live-table')) {
+                                const nextLine = editor.getLine(i + 1) || '';
+                                if (!tableIdString || nextLine.includes(tableIdString)) {
+                                    foundStart = i;
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundStart === -1) {
+                            for (let i = sectionHint.lineStart + 1; i < lineCount; i++) {
+                                if (editor.getLine(i).trimStart().startsWith('```live-table')) {
+                                    const nextLine = editor.getLine(i + 1) || '';
+                                    if (!tableIdString || nextLine.includes(tableIdString)) {
+                                        foundStart = i;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1) {
+                            for (let i = foundStart + 1; i < lineCount; i++) {
+                                if (editor.getLine(i).trimStart().startsWith('```')) {
+                                    foundEnd = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1 && foundEnd !== -1) {
+                            editor.replaceRange(
+                                blockText,
+                                { line: foundStart, ch: 0 },
+                                { line: foundEnd, ch: editor.getLine(foundEnd).length }
+                            );
+                            return;
+                        }
+
+                        console.warn(
+                            'Live Formulas: Could not locate table block in Editor after document shift. Aborting save.'
+                        );
+                        new Notice(
+                            'Live Formulas: Document shifted drastically. Save aborted to prevent data loss. Please manually re-trigger save.'
+                        );
+                        state.markDirty();
+                        return;
+                    }
+
                     void this.app.vault.process(file, (data) => {
                         const lines = data.split('\n');
                         const newLines = md.split('\n');
 
-                        // FAST PATH: Check if the original cached section is still perfectly valid
                         const openLine = lines[sectionHint.lineStart] ?? '';
                         const closeLine = lines[sectionHint.lineEnd] ?? '';
 
@@ -101,15 +178,12 @@ export default class LiveFormulasPlugin extends Plugin {
                             return lines.join('\n');
                         }
 
-                        // SLOW PATH: Document shifted. Search outward from the original lineStart to find the new block bounds.
-                        console.log('Live Formulas: Document shifted. Dynamically locating table block...');
+                        console.log('Live Formulas: Document shifted (Background). Dynamically locating table block...');
                         let foundStart = -1;
                         let foundEnd = -1;
 
-                        // FIX: Locate this exact table using its unique metadata ID
                         const tableIdString = state.tableName ? `"tableName":"${state.tableName}"` : '';
 
-                        // Search backwards near the expected location
                         for (let i = sectionHint.lineStart; i >= 0 && i < lines.length; i--) {
                             if (lines[i].trimStart().startsWith('```live-table')) {
                                 const nextLine = lines[i + 1] || '';
@@ -119,7 +193,6 @@ export default class LiveFormulasPlugin extends Plugin {
                                 }
                             }
                         }
-                        // Search forwards if not found backwards
                         if (foundStart === -1) {
                             for (let i = sectionHint.lineStart + 1; i < lines.length; i++) {
                                 if (lines[i].trimStart().startsWith('```live-table')) {
@@ -146,7 +219,6 @@ export default class LiveFormulasPlugin extends Plugin {
                             return lines.join('\n');
                         }
 
-                        // If we still can't find it, abort to prevent corruption
                         console.warn(
                             'Live Formulas: Could not locate table block after document shift. Aborting save.'
                         );
