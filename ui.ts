@@ -1,4 +1,3 @@
-import { Menu } from 'obsidian';
 import { MathEngine } from './math';
 import { TableToolbar } from './toolbar';
 import { LiveFormulasSettings } from './settings';
@@ -6,6 +5,13 @@ import { TableState, CellData, lettersToColumnIndex, columnIndexToLetters } from
 import * as Actions from './dataActions';
 import { CellEditor } from './src/cellEditor';
 import { SelectionManager } from './src/selectionManager';
+import { createClipboardManager } from './src/clipboardManager';
+import {
+    openColumnHeaderContextMenu,
+    openRowHeaderContextMenu,
+    openCellContextMenu,
+    type TableMenuServices,
+} from './src/contextMenu';
 
 const balanceFormulaParens = (formula: string): string => {
     if (!formula.startsWith('=')) return formula;
@@ -24,14 +30,6 @@ interface SelectionCache {
     selectedIds: string[];
 }
 let recentSelectionCache: SelectionCache | null = null;
-
-interface InternalClipboard {
-    text: string;
-    matrix: any[][];
-    minC: number;
-    minR: number;
-}
-let pluginClipboard: InternalClipboard | null = null;
 
 export const renderTableUI = (
     el: HTMLElement,
@@ -194,190 +192,25 @@ export const renderTableUI = (
         saveWithHistory();
     });
 
-    const executeCopy = (): boolean => {
-        const selectedIds = selectionManager.getSelectedIds();
-        if (selectedIds.length === 0) return false;
+    const clipboard = createClipboardManager({
+        state,
+        selectionManager,
+        engine,
+        wrapper,
+        refreshCellDisplay,
+        saveWithHistory,
+        rerender,
+    });
+    const { executeCopy, executeCut, executePaste } = clipboard;
 
-        let minR = Infinity,
-            maxR = -Infinity,
-            minC = Infinity,
-            maxC = -Infinity;
-        selectedIds.forEach((id) => {
-            const match = id.match(/^([A-Z]+)(\d+)$/i);
-            if (match) {
-                const c = lettersToColumnIndex(match[1]);
-                const r = parseInt(match[2], 10);
-                if (c < minC) minC = c;
-                if (c > maxC) maxC = c;
-                if (r < minR) minR = r;
-                if (r > maxR) maxR = r;
-            }
-        });
-
-        const matrix: any[][] = [];
-        const tsvRows: string[] = [];
-
-        for (let r = minR; r <= maxR; r++) {
-            const rowData: any[] = [];
-            const tsvCols: string[] = [];
-            for (let c = minC; c <= maxC; c++) {
-                const id = `${columnIndexToLetters(c)}${r}`;
-                const cell = state.getCell(id);
-                rowData.push(cell ? JSON.parse(JSON.stringify(cell)) : null);
-                const td = wrapper.querySelector(`td[data-cell-id="${id}"]`);
-                tsvCols.push(td ? td.textContent || '' : cell ? String(cell.value || '') : '');
-            }
-            matrix.push(rowData);
-            tsvRows.push(tsvCols.join('\t'));
-        }
-
-        const tsv = tsvRows.join('\n');
-        void navigator.clipboard.writeText(tsv);
-        pluginClipboard = { text: tsv, matrix, minC, minR };
-
-        wrapper.querySelectorAll('.is-copied-highlight').forEach((el) => el.classList.remove('is-copied-highlight'));
-        selectedIds.forEach((id) => {
-            const td = wrapper.querySelector(`td[data-cell-id="${id}"]`);
-            if (td) td.classList.add('is-copied-highlight');
-        });
-        return true;
-    };
-
-    const executeCut = () => {
-        if (!executeCopy()) return;
-
-        const selectedIds = selectionManager.getSelectedIds();
-        selectedIds.forEach((id) => {
-            const cell = state.ensureCell(id);
-            cell.value = '';
-            cell.formula = undefined;
-            state.setCell(id, cell);
-
-            const { updated } = engine.updateCellAndDependents(id);
-            [id, ...updated].forEach((uid) => refreshCellDisplay(uid));
-        });
-
-        state.markDirty();
-        saveWithHistory();
-    };
-
-    const executePaste = (text: string) => {
-        const activeId = selectionManager.getActiveCellId();
-        if (!activeId) return;
-
-        const match = activeId.match(/^([A-Z]+)(\d+)$/i);
-        if (!match) return;
-        const startCol = lettersToColumnIndex(match[1]);
-        const startRow = parseInt(match[2], 10);
-
-        let requiredRows = startRow;
-        let requiredCols = startCol;
-
-        if (pluginClipboard && pluginClipboard.text === text) {
-            requiredRows = startRow + pluginClipboard.matrix.length - 1;
-            requiredCols = startCol + (pluginClipboard.matrix[0]?.length || 1) - 1;
-        } else {
-            const rows = text.split(/\r?\n/);
-            const validRows = rows[rows.length - 1] === '' ? rows.length - 1 : rows.length;
-            requiredRows = startRow + validRows - 1;
-
-            let maxColsInText = 0;
-            for (let i = 0; i < validRows; i++) {
-                maxColsInText = Math.max(maxColsInText, rows[i].split('\t').length);
-            }
-            requiredCols = startCol + maxColsInText - 1;
-        }
-
-        requiredRows = Math.min(requiredRows, 200);
-        requiredCols = Math.min(requiredCols, 200);
-
-        let didExpand = false;
-        while (state.maxRow < requiredRows) {
-            Actions.insertRow(state, state.maxRow + 1);
-            didExpand = true;
-        }
-        while (state.maxCol < requiredCols) {
-            Actions.insertCol(state, state.maxCol + 1, state.maxRow);
-            didExpand = true;
-        }
-
-        if (didExpand) {
-            state.recalculateExtents();
-        }
-
-        const cellsToRefresh = new Set<string>();
-        let needsRerender = didExpand;
-
-        if (pluginClipboard && pluginClipboard.text === text) {
-            const matrix = pluginClipboard.matrix;
-            const dCol = startCol - pluginClipboard.minC;
-            const dRow = startRow - pluginClipboard.minR;
-            for (let rowOffset = 0; rowOffset < matrix.length; rowOffset++) {
-                for (let colOffset = 0; colOffset < matrix[rowOffset].length; colOffset++) {
-                    const sourceCell = matrix[rowOffset][colOffset];
-                    if (!sourceCell) continue;
-
-                    const targetCol = startCol + colOffset;
-                    const targetRow = startRow + rowOffset;
-                    const targetId = `${columnIndexToLetters(targetCol)}${targetRow}`;
-
-                    if (targetCol > state.maxCol || targetRow > state.maxRow) needsRerender = true;
-
-                    const newCell = { ...sourceCell };
-                    if (newCell.formula) {
-                        newCell.formula = Actions.shiftFormulaByOffset(newCell.formula, dCol, dRow);
-                    }
-                    state.setCell(targetId, newCell);
-                    cellsToRefresh.add(targetId);
-                }
-            }
-        } else {
-            const rows = text.split(/\r?\n/);
-            for (let rowOffset = 0; rowOffset < rows.length; rowOffset++) {
-                if (!rows[rowOffset] && rowOffset === rows.length - 1) continue;
-                const cols = rows[rowOffset].split('\t');
-                for (let colOffset = 0; colOffset < cols.length; colOffset++) {
-                    const targetCol = startCol + colOffset;
-                    const targetRow = startRow + rowOffset;
-                    const targetId = `${columnIndexToLetters(targetCol)}${targetRow}`;
-
-                    if (targetCol > state.maxCol || targetRow > state.maxRow) needsRerender = true;
-
-                    let parsed: string | number = cols[colOffset].trim();
-                    const asNum = Number(parsed.replace(/,/g, ''));
-                    if (!isNaN(asNum) && parsed !== '') parsed = asNum;
-
-                    const cell = state.ensureCell(targetId);
-                    cell.value = parsed;
-                    cell.formula = typeof parsed === 'string' && parsed.startsWith('=') ? parsed : undefined;
-                    state.setCell(targetId, cell);
-                    cellsToRefresh.add(targetId);
-                }
-            }
-        }
-
-        state.recalculateExtents();
-        state.markDirty();
-
-        const toProcess = [...cellsToRefresh];
-        for (let i = 0; i < toProcess.length; i++) {
-            const id = toProcess[i];
-            const { updated } = engine.updateCellAndDependents(id);
-            for (const depId of updated) {
-                if (!cellsToRefresh.has(depId)) {
-                    cellsToRefresh.add(depId);
-                    toProcess.push(depId);
-                }
-            }
-        }
-
-        if (needsRerender) {
-            saveWithHistory();
-            rerender();
-        } else {
-            cellsToRefresh.forEach((id) => refreshCellDisplay(id));
-            saveWithHistory();
-        }
+    const menuServices: TableMenuServices = {
+        state,
+        selectionManager,
+        wrapper,
+        saveWithHistory,
+        rerender,
+        rowCount: rows,
+        clipboard,
     };
 
     wrapper.addEventListener('copy', (e) => {
@@ -571,59 +404,7 @@ export const renderTableUI = (
                 wrapper.focus();
             });
 
-            th.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                const selectedCols = new Set(selectionManager.getSelectedIds().map((id) => id.match(/[A-Z]+/)?.[0]));
-                if (!selectedCols.has(c)) {
-                    selectionManager.selectColumn(c);
-                }
-                wrapper.focus();
-                const colIdx = lettersToColumnIndex(c);
-                const menu = new Menu();
-
-                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
-                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
-                menu.addItem((i) =>
-                    i.setTitle('Paste').onClick(async () => {
-                        const text = await navigator.clipboard.readText();
-                        if (text) executePaste(text);
-                    })
-                );
-                menu.addSeparator();
-
-                const colsToDelete = Array.from(
-                    new Set(
-                        selectionManager.getSelectedIds().map((id) => lettersToColumnIndex(id.match(/[A-Z]+/)?.[0] || 'A'))
-                    )
-                )
-                    .filter((n) => n > 0)
-                    .sort((a, b) => b - a);
-
-                const deleteLabel = colsToDelete.length > 1 ? `Delete ${colsToDelete.length} Columns` : 'Delete Column';
-
-                menu.addItem((i) =>
-                    i.setTitle('Insert Column Left').onClick(() => {
-                        Actions.insertCol(state, colIdx, rows);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Insert Column Right').onClick(() => {
-                        Actions.insertCol(state, colIdx + 1, rows);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle(deleteLabel).onClick(() => {
-                        colsToDelete.forEach((cIdx) => Actions.deleteCol(state, cIdx));
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.showAtMouseEvent(e);
-            });
+            th.addEventListener('contextmenu', (e) => openColumnHeaderContextMenu(e, c, menuServices));
         });
     }
 
@@ -646,56 +427,7 @@ export const renderTableUI = (
                 wrapper.focus();
             });
 
-            rHead.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                const selectedRows = new Set(selectionManager.getSelectedIds().map((id) => id.match(/\d+/)?.[0]));
-                if (!selectedRows.has(r.toString())) {
-                    selectionManager.selectRow(r);
-                }
-                wrapper.focus();
-                const menu = new Menu();
-
-                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
-                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
-                menu.addItem((i) =>
-                    i.setTitle('Paste').onClick(async () => {
-                        const text = await navigator.clipboard.readText();
-                        if (text) executePaste(text);
-                    })
-                );
-                menu.addSeparator();
-
-                const rowsToDelete = Array.from(
-                    new Set(selectionManager.getSelectedIds().map((id) => parseInt(id.match(/\d+/)?.[0] || '0', 10)))
-                )
-                    .filter((n) => n > 0)
-                    .sort((a, b) => b - a);
-
-                const deleteLabel = rowsToDelete.length > 1 ? `Delete ${rowsToDelete.length} Rows` : 'Delete Row';
-
-                menu.addItem((i) =>
-                    i.setTitle('Insert Row Above').onClick(() => {
-                        Actions.insertRow(state, r);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Insert Row Below').onClick(() => {
-                        Actions.insertRow(state, r + 1);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle(deleteLabel).onClick(() => {
-                        rowsToDelete.forEach((rowIdx) => Actions.deleteRow(state, rowIdx));
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.showAtMouseEvent(e);
-            });
+            rHead.addEventListener('contextmenu', (e) => openRowHeaderContextMenu(e, r, menuServices));
         }
 
         for (const c of cols) {
@@ -708,69 +440,9 @@ export const renderTableUI = (
 
             refreshCellDisplay(cellId);
 
-            td.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                selectionManager.restoreSelection(cellId, [cellId]);
-                wrapper.focus();
-                const colIdx = lettersToColumnIndex(c);
-                const menu = new Menu();
-
-                menu.addItem((i) => i.setTitle('Copy').onClick(() => executeCopy()));
-                menu.addItem((i) => i.setTitle('Cut').onClick(() => executeCut()));
-                menu.addItem((i) =>
-                    i.setTitle('Paste').onClick(async () => {
-                        const text = await navigator.clipboard.readText();
-                        if (text) executePaste(text);
-                    })
-                );
-                menu.addSeparator();
-
-                menu.addItem((i) =>
-                    i.setTitle('Insert Row Above').onClick(() => {
-                        Actions.insertRow(state, r);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Insert Row Below').onClick(() => {
-                        Actions.insertRow(state, r + 1);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Delete Row').onClick(() => {
-                        Actions.deleteRow(state, r);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addSeparator();
-                menu.addItem((i) =>
-                    i.setTitle('Insert Column Left').onClick(() => {
-                        Actions.insertCol(state, colIdx, rows);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Insert Column Right').onClick(() => {
-                        Actions.insertCol(state, colIdx + 1, rows);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-                menu.addItem((i) =>
-                    i.setTitle('Delete Column').onClick(() => {
-                        Actions.deleteCol(state, colIdx);
-                        saveWithHistory();
-                        rerender();
-                    })
-                );
-
-                menu.showAtMouseEvent(e);
-            });
+            td.addEventListener('contextmenu', (e) =>
+                openCellContextMenu(e, cellId, r, lettersToColumnIndex(c), menuServices)
+            );
         }
     }
 

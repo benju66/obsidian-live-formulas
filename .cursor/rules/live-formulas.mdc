@@ -1,0 +1,9 @@
+---
+description: Obsidian Live Formulas plugin — conventions for edits
+globs: "*.ts,main.js"
+---
+
+- Prefer changing **TypeScript sources**; **`main.js`** is esbuild output — run **`npm run build`** after changes.
+- Keep **`main.ts`** focused on plugin lifecycle and persistence; UI lives in **`ui.ts`** and **`src/`** helpers.
+- Match existing patterns (minimal drive-by refactors; preserve public behavior).
+- New cross-cutting behavior: document in **`AGENTS.md`** in one short bullet.
