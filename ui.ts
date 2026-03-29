@@ -65,6 +65,12 @@ export const renderTableUI = (
         const current = captureSnapshot();
         if (current !== lastSnapshot) {
             st.undoStack!.push(lastSnapshot);
+
+            // Cap the memory footprint to a rolling 50 operations
+            if (st.undoStack!.length > 50) {
+                st.undoStack!.shift();
+            }
+
             st.redoStack = [];
             lastSnapshot = current;
         }
