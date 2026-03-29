@@ -1,6 +1,6 @@
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { EditorState, RangeSetBuilder, StateField } from '@codemirror/state';
-import { TableState } from '../tableState';
+import { TableState, columnIndexToLetters } from '../tableState';
 import { MathEngine } from '../math';
 import type LiveFormulasPlugin from '../main';
 
@@ -147,6 +147,91 @@ const nativeTableViewPlugin = ViewPlugin.fromClass(
     }
 );
 
+const activeCellIndicatorPlugin = ViewPlugin.fromClass(
+    class {
+        dom: HTMLElement;
+
+        constructor(view: EditorView) {
+            this.dom = document.createElement('div');
+            this.dom.className = 'live-formula-active-cell-indicator';
+            this.dom.style.position = 'absolute';
+            this.dom.style.zIndex = '100';
+            this.dom.style.padding = '4px 10px';
+            this.dom.style.background = 'var(--background-secondary)';
+            this.dom.style.border = '1px solid var(--background-modifier-border)';
+            this.dom.style.borderRadius = '6px';
+            this.dom.style.color = 'var(--text-accent)';
+            this.dom.style.fontFamily = 'var(--font-monospace)';
+            this.dom.style.fontSize = '0.85em';
+            this.dom.style.pointerEvents = 'none';
+            this.dom.style.display = 'none';
+            this.dom.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+            this.dom.style.transition = 'top 0.1s ease-out, left 0.1s ease-out';
+            view.dom.appendChild(this.dom);
+            this.checkPosition(view);
+        }
+
+        update(update: ViewUpdate) {
+            if (update.selectionSet || update.docChanged || update.viewportChanged) {
+                this.checkPosition(update.view);
+            }
+        }
+
+        checkPosition(view: EditorView) {
+            const pos = view.state.selection.main.head;
+            const tables = view.state.field(nativeTableField);
+            const activeTable = tables.find((t) => pos >= t.from && pos <= t.to);
+
+            if (!activeTable) {
+                this.dom.style.display = 'none';
+                return;
+            }
+
+            const line = view.state.doc.lineAt(pos);
+            const tableStartLine = view.state.doc.lineAt(activeTable.from);
+
+            const rowIndex = line.number - tableStartLine.number - 1;
+            if (rowIndex < 1) {
+                this.dom.style.display = 'none';
+                return;
+            }
+
+            const textUpToCursor = line.text.substring(0, pos - line.from);
+            const pipesBefore = (textUpToCursor.match(/(?<!\\)\|/g) || []).length;
+
+            if (pipesBefore < 1) {
+                this.dom.style.display = 'none';
+                return;
+            }
+
+            const colLetter = columnIndexToLetters(pipesBefore);
+            const cellId = `${colLetter}${rowIndex}`;
+
+            const cellData = activeTable.state.getCell(cellId);
+            let displayString = `🎯 ${cellId}`;
+            if (cellData?.formula) {
+                displayString += ` | ${cellData.formula}`;
+            } else if (cellData?.value !== undefined && cellData?.value !== '') {
+                displayString += ` | ${cellData.value}`;
+            }
+
+            this.dom.textContent = displayString;
+            this.dom.style.display = 'block';
+
+            const coords = view.coordsAtPos(pos);
+            if (coords) {
+                const editorRect = view.dom.getBoundingClientRect();
+                this.dom.style.top = `${coords.bottom - editorRect.top + 8}px`;
+                this.dom.style.left = `${Math.max(10, coords.left - editorRect.left)}px`;
+            }
+        }
+
+        destroy() {
+            this.dom.remove();
+        }
+    }
+);
+
 export function buildNativeTableExtensions(_plugin: LiveFormulasPlugin) {
-    return [nativeTableField, nativeTableViewPlugin];
+    return [nativeTableField, nativeTableViewPlugin, activeCellIndicatorPlugin];
 }

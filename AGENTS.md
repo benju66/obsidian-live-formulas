@@ -8,7 +8,7 @@ Obsidian plugin: editable **markdown tables** with **formulas** inside ` ```live
 
 - **`main.ts`** — `Plugin` lifecycle, `registerMarkdownCodeBlockProcessor('live-table', …)`, debounced save + `forceSave` on the debouncer for unload safety, `performSave` (editor `replaceRange` when active file, else `vault.process`).
 - **`ui.ts`** — `renderTableUI`: DOM, selection, cell editor, formula bar, clipboard, context menus, undo stacks on `TableState`.
-- **`src/nativeTablePlugin.ts`** — Experimental native pipe tables: `StateField` parses tables + `MathEngine` per block; `ViewPlugin` masks `=formulas` with evaluated values when **`settings.experimentalNativeTables`** is on (`buildNativeTableExtensions`).
+- **`src/nativeTablePlugin.ts`** — Experimental native pipe tables: `StateField` parses tables + `MathEngine` per block; `ViewPlugin` masks `=formulas` with evaluated values; floating **active cell indicator** (A1 / formula preview) when **`settings.experimentalNativeTables`** is on (`buildNativeTableExtensions`).
 - **`tableState.ts`** — `TableState`, parse/serialize markdown, `structureDirty`, stable **`id`** in meta, optional display **`tableName`**.
 - **`math.ts`** — `MathEngine`, dependency graph, `formulaToExpr` / evaluation.
 - **`dataActions.ts`** — insert/delete row/column, formula reference shifts, fill.
