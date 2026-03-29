@@ -104,7 +104,15 @@ export class TableState {
     // FIX: Track if the dependency graph needs rebuilding
     structureDirty = true;
 
-    public tableName = generateTableId();
+    /** Stable instance id (persisted in meta). Used to locate this block on save; not the display name. */
+    public id: string;
+
+    /** Optional display label in the UI; may contain quotes — never used for save search. */
+    public tableName: string | null = null;
+
+    constructor() {
+        this.id = generateTableId();
+    }
 
     markDirty(): void {
         this.dirty = true;
@@ -169,6 +177,7 @@ export class TableState {
 
     toMarkdownText(): string {
         const meta: Record<string, unknown> = {};
+        meta.id = this.id;
         if (this.tableName) meta.tableName = this.tableName;
         for (const [id, cell] of this.cells) {
             const hasFormula = !!cell.formula;
@@ -303,16 +312,21 @@ export class TableState {
         if (!t) {
             const s = new TableState();
             s.seedDefaultGrid();
+            if (!s.id) s.id = generateTableId();
             return s;
         }
         if (t.startsWith('{')) {
             try {
-                return TableState.fromLegacyJson(JSON.parse(t) as Record<string, any>);
+                const state = TableState.fromLegacyJson(JSON.parse(t) as Record<string, any>);
+                if (!state.id) state.id = generateTableId();
+                return state;
             } catch {
                 /* fall through */
             }
         }
-        return TableState.fromMarkdownText(t);
+        const state = TableState.fromMarkdownText(t);
+        if (!state.id) state.id = generateTableId();
+        return state;
     }
 
     /** Apply meta entries that might not have been in table body (edge cases). */
@@ -367,10 +381,12 @@ export class TableState {
 
     static fromLegacyJson(obj: Record<string, any>): TableState {
         const state = new TableState();
+        if (typeof obj.id === 'string') state.id = obj.id;
+        if (typeof obj.tableName === 'string') state.tableName = obj.tableName;
         const fmtRoot = (obj._format && typeof obj._format === 'object' ? obj._format : {}) as Record<string, CellData['format']>;
 
         for (const [key, rawVal] of Object.entries(obj)) {
-            if (key === '_format') continue;
+            if (key === '_format' || key === 'id' || key === 'tableName') continue;
             const m = key.match(/^([A-Z]+)(\d+)$/i);
             if (!m) continue;
             const format = { ...emptyFormat(), ...(fmtRoot[key] || {}) };

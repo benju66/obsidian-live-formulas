@@ -10,6 +10,9 @@ export interface InternalClipboard {
     minR: number;
 }
 
+/** Shared across all live-table instances so copy/paste preserves formulas between tables. */
+let pluginClipboard: InternalClipboard | null = null;
+
 export interface ClipboardManagerDeps {
     state: TableState;
     selectionManager: SelectionManager;
@@ -30,8 +33,6 @@ export interface ClipboardHandlers {
  * Clipboard copy/cut/paste for the live table. Holds internal plugin clipboard for structured paste.
  */
 export function createClipboardManager(deps: ClipboardManagerDeps): ClipboardHandlers {
-    let pluginClipboard: InternalClipboard | null = null;
-
     const executeCopy = (): boolean => {
         const { state, selectionManager, wrapper } = deps;
         const selectedIds = selectionManager.getSelectedIds();

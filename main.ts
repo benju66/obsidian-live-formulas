@@ -107,13 +107,13 @@ export default class LiveFormulasPlugin extends Plugin {
                         let foundStart = -1;
                         let foundEnd = -1;
 
-                        const tableIdString = state.tableName ? `"tableName":"${state.tableName}"` : '';
+                        const tableIdString = `"id":"${state.id}"`;
                         const lineCount = editor.lineCount();
 
                         for (let i = sectionHint.lineStart; i >= 0 && i < lineCount; i--) {
                             if (editor.getLine(i).trimStart().startsWith('```live-table')) {
                                 const nextLine = editor.getLine(i + 1) || '';
-                                if (!tableIdString || nextLine.includes(tableIdString)) {
+                                if (nextLine.includes(tableIdString)) {
                                     foundStart = i;
                                     break;
                                 }
@@ -123,7 +123,7 @@ export default class LiveFormulasPlugin extends Plugin {
                             for (let i = sectionHint.lineStart + 1; i < lineCount; i++) {
                                 if (editor.getLine(i).trimStart().startsWith('```live-table')) {
                                     const nextLine = editor.getLine(i + 1) || '';
-                                    if (!tableIdString || nextLine.includes(tableIdString)) {
+                                    if (nextLine.includes(tableIdString)) {
                                         foundStart = i;
                                         break;
                                     }
@@ -182,12 +182,12 @@ export default class LiveFormulasPlugin extends Plugin {
                         let foundStart = -1;
                         let foundEnd = -1;
 
-                        const tableIdString = state.tableName ? `"tableName":"${state.tableName}"` : '';
+                        const tableIdString = `"id":"${state.id}"`;
 
                         for (let i = sectionHint.lineStart; i >= 0 && i < lines.length; i--) {
                             if (lines[i].trimStart().startsWith('```live-table')) {
                                 const nextLine = lines[i + 1] || '';
-                                if (!tableIdString || nextLine.includes(tableIdString)) {
+                                if (nextLine.includes(tableIdString)) {
                                     foundStart = i;
                                     break;
                                 }
@@ -197,7 +197,7 @@ export default class LiveFormulasPlugin extends Plugin {
                             for (let i = sectionHint.lineStart + 1; i < lines.length; i++) {
                                 if (lines[i].trimStart().startsWith('```live-table')) {
                                     const nextLine = lines[i + 1] || '';
-                                    if (!tableIdString || nextLine.includes(tableIdString)) {
+                                    if (nextLine.includes(tableIdString)) {
                                         foundStart = i;
                                         break;
                                     }
