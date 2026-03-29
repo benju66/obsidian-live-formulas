@@ -12,7 +12,7 @@ import {
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
 import { TableState } from './tableState';
-import { buildNativeTablePlugin } from './src/nativeTablePlugin';
+import { buildNativeTableExtensions } from './src/nativeTablePlugin';
 
 class LiveTableSaveLifecycle extends MarkdownRenderChild {
     constructor(
@@ -257,7 +257,7 @@ export default class LiveFormulasPlugin extends Plugin {
         );
 
         if (this.settings.experimentalNativeTables) {
-            this.registerEditorExtension(buildNativeTablePlugin(this));
+            this.registerEditorExtension(buildNativeTableExtensions(this));
         }
     }
 
