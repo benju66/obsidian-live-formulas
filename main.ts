@@ -12,6 +12,7 @@ import {
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
 import { TableState } from './tableState';
+import { buildNativeTablePlugin } from './src/nativeTablePlugin';
 
 class LiveTableSaveLifecycle extends MarkdownRenderChild {
     constructor(
@@ -254,6 +255,10 @@ export default class LiveFormulasPlugin extends Plugin {
                 ctx.addChild(new LiveTableSaveLifecycle(el, saveStateToFile, unregister, () => destroyRef.current()));
             }
         );
+
+        if (this.settings.experimentalNativeTables) {
+            this.registerEditorExtension(buildNativeTablePlugin(this));
+        }
     }
 
     insertDefaultTable() {

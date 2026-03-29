@@ -14,6 +14,8 @@ export interface LiveFormulasSettings {
     showTableNames: boolean;
     defaultRows: number;
     defaultCols: number;
+    /** When true, register CodeMirror 6 decorations for formulas in normal markdown tables (experimental). */
+    experimentalNativeTables: boolean;
 }
 
 export const DEFAULT_SETTINGS: LiveFormulasSettings = {
@@ -154,5 +156,19 @@ export class LiveFormulasSettingTab extends PluginSettingTab {
                     this.plugin.settings.showTableNames = value;
                     await this.plugin.saveSettings();
                 }));
+
+        containerEl.createEl('h3', { text: 'Experimental Features' });
+
+        new Setting(containerEl)
+            .setName('Native markdown table formulas (CM6)')
+            .setDesc(
+                'Masks =formulas in pipe tables in the editor with a placeholder widget. Reload the plugin after toggling.'
+            )
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.experimentalNativeTables).onChange(async (value) => {
+                    this.plugin.settings.experimentalNativeTables = value;
+                    await this.plugin.saveSettings();
+                })
+            );
     }
 }
