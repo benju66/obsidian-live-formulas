@@ -11,7 +11,8 @@ import {
 } from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
-import { TableState } from './tableState';
+import { TableState, columnIndexToLetters } from './tableState';
+import { MathEngine } from './math';
 import { buildNativeTableExtensions } from './src/nativeTablePlugin';
 
 class LiveTableSaveLifecycle extends MarkdownRenderChild {
@@ -258,6 +259,72 @@ export default class LiveFormulasPlugin extends Plugin {
 
         if (this.settings.experimentalNativeTables) {
             this.registerEditorExtension(buildNativeTableExtensions(this));
+
+            this.registerMarkdownPostProcessor((element, _context) => {
+                const tables = element.querySelectorAll('table');
+                tables.forEach((tableEl) => {
+                    if (tableEl.classList.contains('live-formula-table')) return;
+
+                    const tbody = tableEl.querySelector('tbody');
+                    if (!tbody) return;
+
+                    const dataRows = Array.from(tbody.querySelectorAll('tr'));
+                    if (dataRows.length === 0) return;
+
+                    const state = new TableState();
+
+                    dataRows.forEach((tr, rIdx) => {
+                        const rowNum = rIdx + 1;
+                        const cells = Array.from(tr.querySelectorAll('td, th'));
+
+                        cells.forEach((td, cIdx) => {
+                            const colIdx = cIdx + 1;
+                            const cellId = `${columnIndexToLetters(colIdx)}${rowNum}`;
+                            const text = td.textContent?.trim() || '';
+
+                            let formula: string | undefined = undefined;
+                            let value: any = text;
+
+                            if (text.startsWith('=')) {
+                                formula = text;
+                            } else {
+                                const stripped = text.replace(/,/g, '');
+                                const asNum = Number(stripped);
+                                if (!isNaN(asNum) && stripped !== '') {
+                                    value = asNum;
+                                }
+                            }
+
+                            state.setCell(cellId, { value, formula, format: {} });
+                        });
+                    });
+
+                    const engine = new MathEngine(state);
+
+                    dataRows.forEach((tr, rIdx) => {
+                        const rowNum = rIdx + 1;
+                        const cells = Array.from(tr.querySelectorAll('td, th'));
+
+                        cells.forEach((td, cIdx) => {
+                            const colIdx = cIdx + 1;
+                            const cellId = `${columnIndexToLetters(colIdx)}${rowNum}`;
+                            const cell = state.getCell(cellId);
+
+                            if (cell?.formula) {
+                                const result = engine.evaluateFormula(cell.formula);
+
+                                td.textContent = '';
+                                const span = document.createElement('span');
+                                span.className = 'live-formula-native-widget';
+                                span.textContent = String(result);
+                                span.style.color = 'var(--text-accent)';
+                                span.style.fontWeight = 'bold';
+                                td.appendChild(span);
+                            }
+                        });
+                    });
+                });
+            });
         }
     }
 
