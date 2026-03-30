@@ -154,20 +154,21 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
         constructor(view: EditorView) {
             this.dom = document.createElement('div');
             this.dom.className = 'live-formula-active-cell-indicator';
-            this.dom.style.position = 'absolute';
-            this.dom.style.zIndex = '100';
-            this.dom.style.padding = '4px 10px';
-            this.dom.style.background = 'var(--background-secondary)';
+
+            this.dom.style.position = 'fixed';
+            this.dom.style.zIndex = '999999';
+            this.dom.style.padding = '6px 12px';
+            this.dom.style.background = 'var(--background-primary)';
             this.dom.style.border = '1px solid var(--background-modifier-border)';
-            this.dom.style.borderRadius = '6px';
-            this.dom.style.color = 'var(--text-accent)';
+            this.dom.style.borderRadius = '8px';
+            this.dom.style.color = 'var(--text-normal)';
             this.dom.style.fontFamily = 'var(--font-monospace)';
-            this.dom.style.fontSize = '0.85em';
+            this.dom.style.fontSize = '13px';
             this.dom.style.pointerEvents = 'none';
             this.dom.style.display = 'none';
-            this.dom.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
-            this.dom.style.transition = 'top 0.1s ease-out, left 0.1s ease-out';
-            view.dom.appendChild(this.dom);
+            this.dom.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+
+            document.body.appendChild(this.dom);
             this.checkPosition(view);
         }
 
@@ -197,7 +198,13 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
             }
 
             const textUpToCursor = line.text.substring(0, pos - line.from);
-            const pipesBefore = (textUpToCursor.match(/(?<!\\)\|/g) || []).length;
+
+            let pipesBefore = 0;
+            for (let i = 0; i < textUpToCursor.length; i++) {
+                if (textUpToCursor[i] === '|' && (i === 0 || textUpToCursor[i - 1] !== '\\')) {
+                    pipesBefore++;
+                }
+            }
 
             if (pipesBefore < 1) {
                 this.dom.style.display = 'none';
@@ -208,21 +215,25 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
             const cellId = `${colLetter}${rowIndex}`;
 
             const cellData = activeTable.state.getCell(cellId);
-            let displayString = `🎯 ${cellId}`;
+
+            let displayHtml = `<strong style="color: var(--text-accent);">🎯 ${cellId}</strong>`;
             if (cellData?.formula) {
-                displayString += ` | ${cellData.formula}`;
+                displayHtml += ` <span style="margin-left: 6px; color: var(--text-normal);">${cellData.formula}</span>`;
             } else if (cellData?.value !== undefined && cellData?.value !== '') {
-                displayString += ` | ${cellData.value}`;
+                displayHtml += ` <span style="margin-left: 6px; color: var(--text-muted);">${cellData.value}</span>`;
             }
 
-            this.dom.textContent = displayString;
+            this.dom.innerHTML = displayHtml;
             this.dom.style.display = 'block';
 
             const coords = view.coordsAtPos(pos);
             if (coords) {
+                this.dom.style.top = `${coords.bottom + 12}px`;
+                this.dom.style.left = `${coords.left}px`;
+            } else {
                 const editorRect = view.dom.getBoundingClientRect();
-                this.dom.style.top = `${coords.bottom - editorRect.top + 8}px`;
-                this.dom.style.left = `${Math.max(10, coords.left - editorRect.left)}px`;
+                this.dom.style.top = `${editorRect.bottom - 40}px`;
+                this.dom.style.left = `${editorRect.left + 20}px`;
             }
         }
 
