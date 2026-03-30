@@ -168,6 +168,7 @@ export function createClipboardManager(deps: ClipboardManagerDeps): ClipboardHan
                     const newCell = { ...sourceCell } as CellData;
                     if (newCell.formula) {
                         newCell.formula = Actions.shiftFormulaByOffset(newCell.formula, dCol, dRow);
+                        newCell.value = newCell.formula;
                     }
                     state.setCell(targetId, newCell);
                     cellsToRefresh.add(targetId);

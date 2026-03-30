@@ -591,6 +591,7 @@ export class SelectionManager {
             if (td) {
                 this.editor.open(this.activeCellId, td);
                 this.editor.el.value = e.key;
+                this.editor.el.dispatchEvent(new Event('input'));
             }
         }
     };
