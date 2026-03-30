@@ -128,22 +128,25 @@ class FormulaWidget extends WidgetType {
 const nativeTableViewPlugin = ViewPlugin.fromClass(
     class {
         decorations: DecorationSet;
+        visibleTablesCache: ParsedTable[] = [];
 
         constructor(view: EditorView) {
-            this.decorations = this.buildDecorations(view);
+            this.visibleTablesCache = getVisibleTables(view);
+            this.decorations = this.buildDecorations(view, this.visibleTablesCache);
         }
 
         update(update: ViewUpdate) {
-            if (update.docChanged || update.viewportChanged || update.selectionSet) {
-                this.decorations = this.buildDecorations(update.view);
+            if (update.docChanged || update.viewportChanged) {
+                this.visibleTablesCache = getVisibleTables(update.view);
+                this.decorations = this.buildDecorations(update.view, this.visibleTablesCache);
+            } else if (update.selectionSet) {
+                this.decorations = this.buildDecorations(update.view, this.visibleTablesCache);
             }
         }
 
-        buildDecorations(view: EditorView): DecorationSet {
+        buildDecorations(view: EditorView, visibleTables: ParsedTable[]): DecorationSet {
             const builder = new RangeSetBuilder<Decoration>();
             const selection = view.state.selection.main;
-
-            const visibleTables = getVisibleTables(view);
 
             for (const { from, to } of view.visibleRanges) {
                 const text = view.state.doc.sliceString(from, to);

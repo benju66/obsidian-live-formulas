@@ -29,7 +29,9 @@ interface SelectionCache {
     activeCellId: string | null;
     selectedIds: string[];
 }
-let recentSelectionCache: SelectionCache | null = null;
+
+/** Per-table selection fallback; avoids cross-table bleed from a shared module variable. */
+type TableStateWithSelectionCache = TableState & { __liveTableSelectionCache?: SelectionCache | null };
 
 export const renderTableUI = (
     el: HTMLElement,
@@ -40,6 +42,7 @@ export const renderTableUI = (
     persistPluginSettings?: () => Promise<void>,
     destroyRef?: { current: () => void }
 ) => {
+    const stateWithCache = state as TableStateWithSelectionCache;
     const engine = new MathEngine(state);
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
@@ -304,7 +307,7 @@ export const renderTableUI = (
                 selectedIds: selectionManager.getSelectedIds(),
             };
             statefulEl.__liveTableSelection = cache;
-            recentSelectionCache = { timestamp: Date.now(), ...cache };
+            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
 
             rerender();
         }
@@ -324,7 +327,7 @@ export const renderTableUI = (
                 selectedIds: selectionManager.getSelectedIds(),
             };
             statefulEl.__liveTableSelection = cache;
-            recentSelectionCache = { timestamp: Date.now(), ...cache };
+            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
 
             rerender();
         }
@@ -464,7 +467,7 @@ export const renderTableUI = (
             selectedIds,
         };
         statefulEl.__liveTableSelection = cache;
-        recentSelectionCache = { timestamp: Date.now(), ...cache };
+        stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
 
         if (settings.showStatusBar !== false) {
             statusBar.style.display = 'flex';
@@ -517,10 +520,14 @@ export const renderTableUI = (
         const saved = statefulEl.__liveTableSelection;
         selectionManager.restoreSelection(saved.activeCellId, saved.selectedIds);
         setTimeout(() => wrapper.focus(), 10);
-    } else if (recentSelectionCache && Date.now() - recentSelectionCache.timestamp < 1000) {
-        selectionManager.restoreSelection(recentSelectionCache.activeCellId, recentSelectionCache.selectedIds);
+    } else if (
+        stateWithCache.__liveTableSelectionCache &&
+        Date.now() - stateWithCache.__liveTableSelectionCache.timestamp < 1000
+    ) {
+        const rc = stateWithCache.__liveTableSelectionCache;
+        selectionManager.restoreSelection(rc.activeCellId, rc.selectedIds);
         setTimeout(() => wrapper.focus(), 10);
-        recentSelectionCache = null;
+        stateWithCache.__liveTableSelectionCache = null;
     }
 
     formulaBarInput.addEventListener('keydown', (e) => {
@@ -606,7 +613,7 @@ export const renderTableUI = (
                 selectedIds: selectionManager.getSelectedIds(),
             };
             statefulEl.__liveTableSelection = cache;
-            recentSelectionCache = { timestamp: Date.now(), ...cache };
+            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
 
             saveWithHistory();
             setTimeout(() => {
@@ -645,11 +652,13 @@ export const renderTableUI = (
         addColBtn.addEventListener('click', () => {
             Actions.insertCol(state, state.maxCol + 1, rows);
             saveWithHistory();
+            rerender();
         });
         addRowBtn.addEventListener('mousedown', (e) => e.preventDefault());
         addRowBtn.addEventListener('click', () => {
             Actions.insertRow(state, rows + 1);
             saveWithHistory();
+            rerender();
         });
     }
 

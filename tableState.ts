@@ -237,6 +237,7 @@ export class TableState {
             }
             rest = rest.slice(metaMatch[0].length);
             const metaJson = meta as Record<string, unknown>;
+            if (typeof metaJson.id === 'string') state.id = metaJson.id;
             if (typeof metaJson.tableName === 'string') state.tableName = metaJson.tableName;
         }
 
