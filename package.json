@@ -1,14 +1,14 @@
 {
   "name": "obsidian-live-formulas",
   "version": "1.0.0",
-  "description": "Live Table Formulas for Obsidian",
+  "description": "Excel-style inline formulas and live calculations for Markdown tables.",
   "main": "main.js",
   "scripts": {
     "dev": "esbuild main.ts --watch --bundle --platform=node --target=es2018 --format=cjs --external:obsidian --external:@codemirror/* --outfile=main.js",
     "build": "esbuild main.ts --bundle --platform=node --target=es2018 --format=cjs --external:obsidian --external:@codemirror/* --minify --outfile=main.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "Ben Urness",
   "license": "MIT",
   "devDependencies": {
     "@codemirror/state": "^6.4.1",

@@ -105,7 +105,6 @@ export default class LiveFormulasPlugin extends Plugin {
                             return;
                         }
 
-                        console.log('Live Formulas: Document shifted in Editor. Dynamically locating table block...');
                         let foundStart = -1;
                         let foundEnd = -1;
 
@@ -180,7 +179,6 @@ export default class LiveFormulasPlugin extends Plugin {
                             return lines.join('\n');
                         }
 
-                        console.log('Live Formulas: Document shifted (Background). Dynamically locating table block...');
                         let foundStart = -1;
                         let foundEnd = -1;
 

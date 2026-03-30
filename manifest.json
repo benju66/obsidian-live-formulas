@@ -6,6 +6,6 @@
 	"description": "Excel-style inline formulas and live calculations for Markdown tables.",
 	"css": "styles.css",
 	"author": "Ben Urness",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/benju66",
 	"isDesktopOnly": false
 }
