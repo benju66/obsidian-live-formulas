@@ -8,7 +8,7 @@
 Build dynamic spreadsheets, track budgets, and calculate project estimates right inside your notes. The best part? The plugin saves everything as standard Markdown under the hood, ensuring your data remains 100% portable and readable even if the plugin is disabled.
 
 ![Hero Screenshot: GIF or Image](assets/hero.gif)
-*(**Screenshot/GIF Suggestion:** Create a short GIF or a split-screen image. Show typing `=SUM(A1:A5)` in a cell and hitting enter to reveal the calculated total, alongside a view of the clean Markdown table it generates in source mode.)*
+
 
 ## ✨ Features
 
@@ -19,7 +19,7 @@ Build dynamic spreadsheets, track budgets, and calculate project estimates right
 * **Markdown Native:** Your data is never locked away in an opaque format. The UI overlays a standard Markdown table, storing metadata in a hidden HTML comment to maintain perfect portability.
 
 ![Toolbar and Status Bar](assets/ui-overview.png)
-*(**Screenshot Suggestion:** Take a screenshot of an active table showing the column/row headers (A, B, C / 1, 2, 3), the formatting toolbar at the top, and the Status Bar at the bottom showing "Sum: 150 | Average: 50".)*
+
 
 ## 🚀 How to Use
 
@@ -62,7 +62,7 @@ You can tailor the spreadsheet experience in the plugin settings:
 * **Default Grid Size:** Set the default number of rows and columns when inserting a new table.
 
 ![Settings Panel](assets/settings.png)
-*(**Screenshot Suggestion:** A clean screenshot of the Obsidian settings tab for your plugin, showing the toggles for Currency, Status Bar, and Experimental features.)*
+
 
 ## 🧪 Experimental Features
 
