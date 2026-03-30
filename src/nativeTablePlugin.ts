@@ -1,5 +1,5 @@
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { EditorState, RangeSetBuilder, StateField } from '@codemirror/state';
+import { EditorState, RangeSetBuilder } from '@codemirror/state';
 import { TableState, columnIndexToLetters } from '../tableState';
 import { MathEngine } from '../math';
 import type LiveFormulasPlugin from '../main';
@@ -11,57 +11,99 @@ interface ParsedTable {
     engine: MathEngine;
 }
 
-const nativeTableField = StateField.define<ParsedTable[]>({
-    create(state: EditorState) {
-        return parseTables(state);
-    },
-    update(value, tr) {
-        if (tr.docChanged) {
-            return parseTables(tr.state);
-        }
-        return value;
-    },
-});
-
-function parseTables(state: EditorState): ParsedTable[] {
-    const tables: ParsedTable[] = [];
-    const doc = state.doc;
-    let inTable = false;
-    let startPos = 0;
-    let tableLines: string[] = [];
-
-    for (let i = 1; i <= doc.lines; i++) {
-        const line = doc.line(i);
-        const text = line.text.trim();
-        const isTableLine = text.startsWith('|') || text.endsWith('|');
-
-        if (isTableLine) {
-            if (!inTable) {
-                inTable = true;
-                startPos = line.from;
-            }
-            tableLines.push(line.text);
-        } else {
-            if (inTable) {
-                const endPos = doc.line(i - 1).to;
-                addTable(startPos, endPos, tableLines, tables);
-                inTable = false;
-                tableLines = [];
-            }
-        }
-    }
-    if (inTable) {
-        const endPos = doc.line(doc.lines).to;
-        addTable(startPos, endPos, tableLines, tables);
-    }
-    return tables;
-}
-
 function addTable(from: number, to: number, lines: string[], tables: ParsedTable[]) {
     const markdown = lines.join('\n');
     const ts = TableState.fromMarkdownText(markdown);
     const engine = new MathEngine(ts);
     tables.push({ from, to, state: ts, engine });
+}
+
+/**
+ * Scans only the currently visible lines in the editor viewport to find tables.
+ * This prevents massive lag on large documents compared to full-file parsing.
+ */
+function getVisibleTables(view: EditorView): ParsedTable[] {
+    const tables: ParsedTable[] = [];
+    const doc = view.state.doc;
+    const processedLines = new Set<number>();
+
+    for (const { from, to } of view.visibleRanges) {
+        const startLine = doc.lineAt(from).number;
+        const endLine = doc.lineAt(to).number;
+
+        for (let i = startLine; i <= endLine; i++) {
+            if (processedLines.has(i)) continue;
+
+            const line = doc.line(i);
+            const text = line.text.trim();
+
+            if (text.startsWith('|') || text.endsWith('|')) {
+                let tableStartLine = i;
+                while (tableStartLine > 1) {
+                    const prevLine = doc.line(tableStartLine - 1).text.trim();
+                    if (!(prevLine.startsWith('|') || prevLine.endsWith('|'))) break;
+                    tableStartLine--;
+                }
+
+                let tableEndLine = i;
+                while (tableEndLine < doc.lines) {
+                    const nextLine = doc.line(tableEndLine + 1).text.trim();
+                    if (!(nextLine.startsWith('|') || nextLine.endsWith('|'))) break;
+                    tableEndLine++;
+                }
+
+                for (let j = tableStartLine; j <= tableEndLine; j++) {
+                    processedLines.add(j);
+                }
+
+                const tableStartPos = doc.line(tableStartLine).from;
+                const tableEndPos = doc.line(tableEndLine).to;
+                const lines: string[] = [];
+                for (let j = tableStartLine; j <= tableEndLine; j++) {
+                    lines.push(doc.line(j).text);
+                }
+
+                addTable(tableStartPos, tableEndPos, lines, tables);
+            }
+        }
+    }
+    return tables;
+}
+
+/**
+ * Scans up and down from a specific position (like the cursor) to parse a single table.
+ */
+function getTableAtPos(state: EditorState, pos: number): ParsedTable | null {
+    const doc = state.doc;
+    const line = doc.lineAt(pos);
+    const text = line.text.trim();
+
+    if (!(text.startsWith('|') || text.endsWith('|'))) return null;
+
+    let tableStartLine = line.number;
+    while (tableStartLine > 1) {
+        const prevLine = doc.line(tableStartLine - 1).text.trim();
+        if (!(prevLine.startsWith('|') || prevLine.endsWith('|'))) break;
+        tableStartLine--;
+    }
+
+    let tableEndLine = line.number;
+    while (tableEndLine < doc.lines) {
+        const nextLine = doc.line(tableEndLine + 1).text.trim();
+        if (!(nextLine.startsWith('|') || nextLine.endsWith('|'))) break;
+        tableEndLine++;
+    }
+
+    const tableStartPos = doc.line(tableStartLine).from;
+    const tableEndPos = doc.line(tableEndLine).to;
+    const lines: string[] = [];
+    for (let j = tableStartLine; j <= tableEndLine; j++) {
+        lines.push(doc.line(j).text);
+    }
+
+    const tables: ParsedTable[] = [];
+    addTable(tableStartPos, tableEndPos, lines, tables);
+    return tables[0] || null;
 }
 
 class FormulaWidget extends WidgetType {
@@ -101,7 +143,7 @@ const nativeTableViewPlugin = ViewPlugin.fromClass(
             const builder = new RangeSetBuilder<Decoration>();
             const selection = view.state.selection.main;
 
-            const tables = view.state.field(nativeTableField);
+            const visibleTables = getVisibleTables(view);
 
             for (const { from, to } of view.visibleRanges) {
                 const text = view.state.doc.sliceString(from, to);
@@ -123,7 +165,7 @@ const nativeTableViewPlugin = ViewPlugin.fromClass(
                     const formulaText = match[1];
                     let displayValue = `[Calc: ${formulaText}]`;
 
-                    const activeTable = tables.find((t) => start >= t.from && start <= t.to);
+                    const activeTable = visibleTables.find((t) => start >= t.from && start <= t.to);
 
                     if (activeTable) {
                         const result = activeTable.engine.evaluateFormula(formulaText);
@@ -180,8 +222,8 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
 
         checkPosition(view: EditorView) {
             const pos = view.state.selection.main.head;
-            const tables = view.state.field(nativeTableField);
-            const activeTable = tables.find((t) => pos >= t.from && pos <= t.to);
+
+            const activeTable = getTableAtPos(view.state, pos);
 
             if (!activeTable) {
                 this.dom.style.display = 'none';
@@ -244,5 +286,5 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
 );
 
 export function buildNativeTableExtensions(_plugin: LiveFormulasPlugin) {
-    return [nativeTableField, nativeTableViewPlugin, activeCellIndicatorPlugin];
+    return [nativeTableViewPlugin, activeCellIndicatorPlugin];
 }
