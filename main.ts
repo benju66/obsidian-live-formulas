@@ -127,7 +127,20 @@ export default class LiveFormulasPlugin extends Plugin {
                     const startLine = sectionInfo.lineStart + 1;
                     const endLine = sectionInfo.lineEnd;
 
+                    const scrollInfo = editor.getScrollInfo();
+                    const cursor = editor.getCursor();
+
                     editor.replaceRange(md + '\n', { line: startLine, ch: 0 }, { line: endLine, ch: 0 });
+
+                    // Restore after CM applies the update; setCursor can scroll the caret into view and
+                    // overwrite a synchronous scrollTo if we don't re-apply after.
+                    requestAnimationFrame(() => {
+                        editor.scrollTo(scrollInfo.left, scrollInfo.top);
+                        editor.setCursor(cursor);
+                        requestAnimationFrame(() => {
+                            editor.scrollTo(scrollInfo.left, scrollInfo.top);
+                        });
+                    });
                 };
 
                 const saveStateToFile = performSave as any;

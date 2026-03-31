@@ -35,7 +35,7 @@ export function openColumnHeaderContextMenu(e: MouseEvent, colLetter: string, sv
     if (!selectedCols.has(colLetter)) {
         selectionManager.selectColumn(colLetter);
     }
-    wrapper.focus();
+    wrapper.focus({ preventScroll: true });
     const colIdx = lettersToColumnIndex(colLetter);
     const menu = new Menu();
 
@@ -81,7 +81,7 @@ export function openRowHeaderContextMenu(e: MouseEvent, rowIndex: number, svc: T
     if (!selectedRows.has(rowIndex.toString())) {
         selectionManager.selectRow(rowIndex);
     }
-    wrapper.focus();
+    wrapper.focus({ preventScroll: true });
     const menu = new Menu();
 
     addClipboardMenuSection(menu, clipboard);
@@ -129,7 +129,7 @@ export function openCellContextMenu(
     const { selectionManager, wrapper, state, saveWithHistory, rerender, rowCount, clipboard } = svc;
 
     selectionManager.restoreSelection(cellId, [cellId]);
-    wrapper.focus();
+    wrapper.focus({ preventScroll: true });
     const menu = new Menu();
 
     addClipboardMenuSection(menu, clipboard);

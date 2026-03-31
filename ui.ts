@@ -178,12 +178,14 @@ export const renderTableUI = (
         engine,
         (updatedCellIds, moveDirection) => {
             updatedCellIds.forEach((id) => refreshCellDisplay(id));
-            saveWithHistory();
+
             if (moveDirection) {
                 selectionManager.moveActiveCell(moveDirection);
             } else {
-                wrapper.focus();
+                wrapper.focus({ preventScroll: true });
             }
+
+            saveWithHistory();
         },
         (val) => {
             if (!syncRef.fromBar) formulaBarInput.value = val;
@@ -394,7 +396,7 @@ export const renderTableUI = (
                 } else {
                     selectionManager.selectColumn(c);
                 }
-                wrapper.focus();
+                wrapper.focus({ preventScroll: true });
             });
 
             th.addEventListener('contextmenu', (e) => openColumnHeaderContextMenu(e, c, menuServices));
@@ -417,7 +419,7 @@ export const renderTableUI = (
                 } else {
                     selectionManager.selectRow(r);
                 }
-                wrapper.focus();
+                wrapper.focus({ preventScroll: true });
             });
 
             rHead.addEventListener('contextmenu', (e) => openRowHeaderContextMenu(e, r, menuServices));
@@ -502,7 +504,7 @@ export const renderTableUI = (
     const cachedSelection = GLOBAL_SELECTION_CACHE.get(state.id);
     if (cachedSelection && (cachedSelection.activeCellId || cachedSelection.selectedIds.length > 0)) {
         selectionManager.restoreSelection(cachedSelection.activeCellId, cachedSelection.selectedIds);
-        setTimeout(() => wrapper.focus(), 10);
+        setTimeout(() => wrapper.focus({ preventScroll: true }), 10);
     }
 
     formulaBarInput.addEventListener('keydown', (e) => {
@@ -513,7 +515,7 @@ export const renderTableUI = (
 
             if (cellEditor.el.style.display === 'block') {
                 cellEditor.commitAndClose();
-                wrapper.focus();
+                wrapper.focus({ preventScroll: true });
                 return;
             }
 
@@ -541,8 +543,9 @@ export const renderTableUI = (
             const { updated, cyclic } = engine.updateCellAndDependents(activeId);
             const cellsToRefresh = cyclic ? [activeId] : updated.length > 0 ? updated : [activeId];
             cellsToRefresh.forEach((id) => refreshCellDisplay(id));
+
+            wrapper.focus({ preventScroll: true });
             saveWithHistory();
-            wrapper.focus();
         }
     });
 
@@ -590,7 +593,7 @@ export const renderTableUI = (
             saveWithHistory();
             setTimeout(() => {
                 selectionManager.renderSelection();
-                wrapper.focus();
+                wrapper.focus({ preventScroll: true });
             }, 10);
         });
         tb.el.style.display = settings.toolbarVisible !== false ? 'flex' : 'none';

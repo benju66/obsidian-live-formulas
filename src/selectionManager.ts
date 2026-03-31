@@ -202,7 +202,7 @@ export class SelectionManager {
             this.startDragId = this.activeCellId;
             this.renderSelection();
             this.onSelectionChange?.(this.activeCellId);
-            this.wrapper.focus();
+            this.wrapper.focus({ preventScroll: true });
         } else {
             this.clearSelection();
             this.activeCellId = cellId;
@@ -210,7 +210,7 @@ export class SelectionManager {
             this.selectedIds.add(cellId);
             this.renderSelection();
             this.onSelectionChange?.(this.activeCellId);
-            this.wrapper.focus();
+            this.wrapper.focus({ preventScroll: true });
         }
     };
 
@@ -494,7 +494,7 @@ export class SelectionManager {
         this.selectedIds.add(newId);
         this.renderSelection();
         this.onSelectionChange?.(this.activeCellId);
-        this.wrapper.focus();
+        this.wrapper.focus({ preventScroll: true });
     }
 
     private onKeyDown = (e: KeyboardEvent) => {
