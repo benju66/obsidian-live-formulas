@@ -24,14 +24,7 @@ const balanceFormulaParens = (formula: string): string => {
     return formula;
 };
 
-interface SelectionCache {
-    timestamp: number;
-    activeCellId: string | null;
-    selectedIds: string[];
-}
-
-/** Per-table selection fallback; avoids cross-table bleed from a shared module variable. */
-type TableStateWithSelectionCache = TableState & { __liveTableSelectionCache?: SelectionCache | null };
+const GLOBAL_SELECTION_CACHE = new Map<string, { activeCellId: string | null; selectedIds: string[] }>();
 
 export const renderTableUI = (
     el: HTMLElement,
@@ -42,7 +35,6 @@ export const renderTableUI = (
     persistPluginSettings?: () => Promise<void>,
     destroyRef?: { current: () => void }
 ) => {
-    const stateWithCache = state as TableStateWithSelectionCache;
     const engine = new MathEngine(state);
     const cols = state.getColumnLetters();
     const rows = state.maxRow;
@@ -288,10 +280,6 @@ export const renderTableUI = (
         }
     };
 
-    const statefulEl = el as HTMLElement & {
-        __liveTableSelection?: { activeCellId: string | null; selectedIds: string[] };
-    };
-
     selectionManager.onUndo = () => {
         const stack = st.undoStack!;
         if (stack.length > 0) {
@@ -302,12 +290,10 @@ export const renderTableUI = (
             lastSnapshot = captureSnapshot();
             saveStateToFile();
 
-            const cache = {
+            GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            };
-            statefulEl.__liveTableSelection = cache;
-            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
+            });
 
             rerender();
         }
@@ -322,12 +308,10 @@ export const renderTableUI = (
             lastSnapshot = captureSnapshot();
             saveStateToFile();
 
-            const cache = {
+            GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            };
-            statefulEl.__liveTableSelection = cache;
-            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
+            });
 
             rerender();
         }
@@ -462,12 +446,11 @@ export const renderTableUI = (
 
     selectionManager.onSelectionChange = (activeId) => {
         const selectedIds = selectionManager.getSelectedIds();
-        const cache = {
-            activeCellId: activeId,
-            selectedIds,
-        };
-        statefulEl.__liveTableSelection = cache;
-        stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
+        if (!activeId && selectedIds.length === 0) {
+            GLOBAL_SELECTION_CACHE.delete(state.id);
+        } else {
+            GLOBAL_SELECTION_CACHE.set(state.id, { activeCellId: activeId, selectedIds });
+        }
 
         if (settings.showStatusBar !== false) {
             statusBar.style.display = 'flex';
@@ -516,18 +499,10 @@ export const renderTableUI = (
         formulaBarInput.value = raw === undefined || raw === null ? '' : raw.toString();
     };
 
-    if (statefulEl.__liveTableSelection) {
-        const saved = statefulEl.__liveTableSelection;
-        selectionManager.restoreSelection(saved.activeCellId, saved.selectedIds);
+    const cachedSelection = GLOBAL_SELECTION_CACHE.get(state.id);
+    if (cachedSelection && (cachedSelection.activeCellId || cachedSelection.selectedIds.length > 0)) {
+        selectionManager.restoreSelection(cachedSelection.activeCellId, cachedSelection.selectedIds);
         setTimeout(() => wrapper.focus(), 10);
-    } else if (
-        stateWithCache.__liveTableSelectionCache &&
-        Date.now() - stateWithCache.__liveTableSelectionCache.timestamp < 1000
-    ) {
-        const rc = stateWithCache.__liveTableSelectionCache;
-        selectionManager.restoreSelection(rc.activeCellId, rc.selectedIds);
-        setTimeout(() => wrapper.focus(), 10);
-        stateWithCache.__liveTableSelectionCache = null;
     }
 
     formulaBarInput.addEventListener('keydown', (e) => {
@@ -607,13 +582,10 @@ export const renderTableUI = (
             }
             state.markDirty();
 
-            // Refresh the cache immediately before saving to ensure it survives the DOM rebuild
-            const cache = {
+            GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            };
-            statefulEl.__liveTableSelection = cache;
-            stateWithCache.__liveTableSelectionCache = { timestamp: Date.now(), ...cache };
+            });
 
             saveWithHistory();
             setTimeout(() => {
