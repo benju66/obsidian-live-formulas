@@ -7,5 +7,5 @@
 	"css": "styles.css",
 	"author": "Ben Urness",
 	"authorUrl": "https://github.com/benju66",
-	"isDesktopOnly": false
+	"isDesktopOnly": true
 }

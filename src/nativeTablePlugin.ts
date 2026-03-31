@@ -9,13 +9,23 @@ interface ParsedTable {
     to: number;
     state: TableState;
     engine: MathEngine;
+    resultsCache: Map<string, string>;
 }
 
 function addTable(from: number, to: number, lines: string[], tables: ParsedTable[]) {
     const markdown = lines.join('\n');
     const ts = TableState.fromMarkdownText(markdown);
     const engine = new MathEngine(ts);
-    tables.push({ from, to, state: ts, engine });
+
+    const resultsCache = new Map<string, string>();
+    for (const cell of ts.cells.values()) {
+        if (cell.formula) {
+            const result = engine.evaluateFormula(cell.formula);
+            resultsCache.set(cell.formula, String(result));
+        }
+    }
+
+    tables.push({ from, to, state: ts, engine, resultsCache });
 }
 
 /**
@@ -171,8 +181,13 @@ const nativeTableViewPlugin = ViewPlugin.fromClass(
                     const activeTable = visibleTables.find((t) => start >= t.from && start <= t.to);
 
                     if (activeTable) {
-                        const result = activeTable.engine.evaluateFormula(formulaText);
-                        displayValue = String(result);
+                        if (activeTable.resultsCache.has(formulaText)) {
+                            displayValue = activeTable.resultsCache.get(formulaText)!;
+                        } else {
+                            const result = activeTable.engine.evaluateFormula(formulaText);
+                            activeTable.resultsCache.set(formulaText, String(result));
+                            displayValue = String(result);
+                        }
                     }
 
                     builder.add(
@@ -197,7 +212,8 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
         dom: HTMLElement;
 
         constructor(view: EditorView) {
-            this.dom = document.createElement('div');
+            const doc = view.dom.ownerDocument;
+            this.dom = doc.createElement('div');
             this.dom.className = 'live-formula-active-cell-indicator';
 
             this.dom.style.position = 'fixed';
@@ -213,7 +229,8 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
             this.dom.style.display = 'none';
             this.dom.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
 
-            document.body.appendChild(this.dom);
+            // Append to the window/document that owns this editor (multi-window safe)
+            doc.body.appendChild(this.dom);
             this.checkPosition(view);
         }
 
@@ -283,7 +300,9 @@ const activeCellIndicatorPlugin = ViewPlugin.fromClass(
         }
 
         destroy() {
-            this.dom.remove();
+            if (this.dom && this.dom.parentNode) {
+                this.dom.parentNode.removeChild(this.dom);
+            }
         }
     }
 );
