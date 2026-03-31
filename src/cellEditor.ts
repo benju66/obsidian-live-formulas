@@ -31,8 +31,9 @@ export class CellEditor {
         this.el.className = 'live-formula-floating-editor';
         this.el.style.display = 'none';
 
-        this.wrapper.style.position = 'relative';
-        this.wrapper.appendChild(this.el);
+        this.el.style.position = 'fixed';
+        this.el.style.zIndex = '999999';
+        document.body.appendChild(this.el);
 
         this.el.addEventListener('input', () => this.onInput?.(this.el.value));
 
@@ -79,10 +80,9 @@ export class CellEditor {
         this.activeTd = td;
 
         const rect = td.getBoundingClientRect();
-        const wrapperRect = this.wrapper.getBoundingClientRect();
 
-        this.el.style.top = `${rect.top - wrapperRect.top + this.wrapper.scrollTop}px`;
-        this.el.style.left = `${rect.left - wrapperRect.left + this.wrapper.scrollLeft}px`;
+        this.el.style.top = `${rect.top}px`;
+        this.el.style.left = `${rect.left}px`;
         this.el.style.width = `${Math.max(rect.width, 120)}px`;
         this.el.style.height = `${Math.max(rect.height, 28)}px`;
         this.el.style.display = 'block';
@@ -139,14 +139,15 @@ export class CellEditor {
         const cellsToRefresh = cyclic ? [cellId] : updated.length > 0 ? updated : [cellId];
 
         this.el.style.display = 'none';
+
+        this.el.blur();
+
         this.activeCellId = null;
         this.activeTd = null;
 
         this.onSave(cellsToRefresh, moveDirection);
 
-        setTimeout(() => {
-            this.isCommitting = false;
-        }, 20);
+        this.isCommitting = false;
     }
 
     public destroy() {

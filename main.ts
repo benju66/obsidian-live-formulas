@@ -5,9 +5,6 @@ import {
     Menu,
     Editor,
     MarkdownView,
-    Notice,
-    debounce,
-    Debouncer,
 } from 'obsidian';
 import { renderTableUI } from './ui';
 import { LiveFormulasSettingTab, LiveFormulasSettings, DEFAULT_SETTINGS } from './settings';
@@ -18,7 +15,7 @@ import { buildNativeTableExtensions } from './src/nativeTablePlugin';
 class LiveTableSaveLifecycle extends MarkdownRenderChild {
     constructor(
         containerEl: HTMLElement,
-        private readonly saveStateToFile: Debouncer<[], void>,
+        private readonly saveStateToFile: () => void,
         private readonly unregister: () => void,
         private readonly destroyUI: () => void
     ) {
@@ -45,7 +42,7 @@ function defaultTableMarkdown(settings: LiveFormulasSettings): string {
 export default class LiveFormulasPlugin extends Plugin {
     settings: LiveFormulasSettings;
 
-    private liveTableBlocks = new Set<Debouncer<[], void>>();
+    private liveTableBlocks = new Set<() => void>();
 
     async onload() {
         await this.loadSettings();
@@ -76,58 +73,68 @@ export default class LiveFormulasPlugin extends Plugin {
                 const performSave = () => {
                     if (!state.dirty) return;
 
-                    const file = this.app.vault.getFileByPath(ctx.sourcePath);
-                    if (!file) return;
+                    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+
+                    const sectionInfo = ctx.getSectionInfo(el);
+
+                    if (!view || !sectionInfo) {
+                        const file = this.app.vault.getFileByPath(ctx.sourcePath);
+                        if (!file) return;
+
+                        const md = state.toMarkdownText();
+                        state.clearDirty();
+
+                        void this.app.vault.process(file, (data) => {
+                            const lines = data.split('\n');
+                            const newLines = md.split('\n');
+                            const tableIdString = `"id":"${state.id}"`;
+
+                            let foundStart = -1;
+                            let foundEnd = -1;
+
+                            for (let i = 0; i < lines.length; i++) {
+                                if (lines[i].trimStart().startsWith('```live-table')) {
+                                    const nextLine = lines[i + 1] || '';
+                                    if (nextLine.includes(tableIdString)) {
+                                        foundStart = i;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (foundStart !== -1) {
+                                for (let i = foundStart + 1; i < lines.length; i++) {
+                                    if (lines[i].trimStart().startsWith('```')) {
+                                        foundEnd = i;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (foundStart !== -1 && foundEnd !== -1) {
+                                lines.splice(foundStart + 1, foundEnd - foundStart - 1, ...newLines);
+                                return lines.join('\n');
+                            }
+                            return data;
+                        });
+                        return;
+                    }
 
                     const md = state.toMarkdownText();
                     state.clearDirty();
 
-                    void this.app.vault.process(file, (data) => {
-                        const lines = data.split('\n');
-                        const newLines = md.split('\n');
-                        const tableIdString = `"id":"${state.id}"`;
+                    const editor = view.editor;
+                    const startLine = sectionInfo.lineStart + 1;
+                    const endLine = sectionInfo.lineEnd;
 
-                        let foundStart = -1;
-                        let foundEnd = -1;
-
-                        for (let i = 0; i < lines.length; i++) {
-                            if (lines[i].trimStart().startsWith('```live-table')) {
-                                const nextLine = lines[i + 1] || '';
-                                if (nextLine.includes(tableIdString)) {
-                                    foundStart = i;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (foundStart !== -1) {
-                            for (let i = foundStart + 1; i < lines.length; i++) {
-                                if (lines[i].trimStart().startsWith('```')) {
-                                    foundEnd = i;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (foundStart !== -1 && foundEnd !== -1) {
-                            lines.splice(foundStart + 1, foundEnd - foundStart - 1, ...newLines);
-                            return lines.join('\n');
-                        }
-
-                        console.warn('Live Formulas: Could not locate table block in file. Aborting save.');
-                        new Notice(
-                            'Live Formulas: Document shifted. Save aborted to prevent data loss. Please manually re-trigger save.'
-                        );
-                        state.markDirty();
-                        return data;
-                    });
+                    editor.replaceRange(md + '\n', { line: startLine, ch: 0 }, { line: endLine, ch: 0 });
                 };
 
-                const saveStateToFile = debounce(performSave, 400, true);
-                (saveStateToFile as any).forceSave = performSave;
+                const saveStateToFile = performSave as any;
+                saveStateToFile.forceSave = performSave;
 
                 const unregister = () => {
-                    this.liveTableBlocks.delete(saveStateToFile);
+                    this.liveTableBlocks.delete(performSave);
                 };
                 const destroyRef = { current: () => {} };
 
@@ -143,8 +150,8 @@ export default class LiveFormulasPlugin extends Plugin {
                 };
 
                 renderTableUI(el, state, this.settings, saveStateToFile, toggleHeaders, () => this.saveSettings(), destroyRef);
-                this.liveTableBlocks.add(saveStateToFile);
-                ctx.addChild(new LiveTableSaveLifecycle(el, saveStateToFile, unregister, () => destroyRef.current()));
+                this.liveTableBlocks.add(performSave);
+                ctx.addChild(new LiveTableSaveLifecycle(el, performSave, unregister, () => destroyRef.current()));
             }
         );
 
