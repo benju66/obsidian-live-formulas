@@ -232,7 +232,11 @@ export class TableState {
         if (metaMatch) {
             try {
                 meta = JSON.parse(metaMatch[1]) as LiveTableMeta;
-            } catch {
+            } catch (e) {
+                console.error(
+                    'Live Formulas: Failed to parse table metadata JSON. The hidden HTML comment may be corrupted.',
+                    e
+                );
                 meta = {};
             }
             rest = rest.slice(metaMatch[0].length);
@@ -286,6 +290,13 @@ export class TableState {
                 if (formulaStr && !formulaStr.startsWith('=')) {
                     formulaStr = `=${formulaStr}`;
                 }
+
+                // If meta still has a formula but the markdown body is not a formula (user edited the
+                // displayed value in source), prefer the body and drop the stale formula to avoid overwriting.
+                if (formulaFromMeta && !formulaFromCell) {
+                    formulaStr = undefined;
+                }
+
                 if (formulaStr) {
                     state.setCell(id, {
                         value: formulaStr,

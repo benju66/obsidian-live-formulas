@@ -69,8 +69,8 @@ export const renderTableUI = (
         if (current !== lastSnapshot) {
             st.undoStack!.push(lastSnapshot);
 
-            // Cap the memory footprint to a rolling 50 operations
-            if (st.undoStack!.length > 50) {
+            // Cap the memory footprint to a rolling 15 operations to prevent memory bloat on large tables
+            if (st.undoStack!.length > 15) {
                 st.undoStack!.shift();
             }
 

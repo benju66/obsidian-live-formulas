@@ -585,7 +585,10 @@ export class SelectionManager {
             }
         }
 
-        if (e.key.length === 1 && !cmdOrCtrl && !e.altKey) {
+        // Only trigger type-to-edit for actual printable characters, ignoring pure modifier keypresses
+        const isPrintableChar = e.key.length === 1 && !cmdOrCtrl && !e.altKey && !e.metaKey;
+
+        if (isPrintableChar) {
             e.preventDefault();
             const td = this.wrapper.querySelector(`td[data-cell-id="${this.activeCellId}"]`) as HTMLElement;
             if (td) {
