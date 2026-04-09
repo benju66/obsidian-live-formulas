@@ -211,3 +211,116 @@ export const fillFormulaToRange = (state: TableState, sourceCellId: string, targ
     state.setCell(targetCellId, { value: newFormula, formula: newFormula, format: formatObj });
     state.markDirty();
 };
+
+export const fillSmartSeries = (state: TableState, sourceIds: string[], targetIds: string[]) => {
+    if (sourceIds.length === 0 || targetIds.length === 0) return;
+    
+    // Sort sources by Row, then Col
+    const parseId = (id: string) => {
+        const match = id.match(/^([A-Z]+)(\d+)$/i);
+        return match ? { c: lettersToColumnIndex(match[1]), r: parseInt(match[2], 10), id } : null;
+    };
+    
+    let sources = sourceIds.map(parseId).filter(x => x !== null) as {c:number, r:number, id:string}[];
+    let targets = targetIds.map(parseId).filter(x => x !== null) as {c:number, r:number, id:string}[];
+    
+    // Determine fill direction based on targets bounding box compared to sources bounding box
+    const sMinR = Math.min(...sources.map(s => s.r));
+    const sMaxR = Math.max(...sources.map(s => s.r));
+    const sMinC = Math.min(...sources.map(s => s.c));
+    const sMaxC = Math.max(...sources.map(s => s.c));
+    
+    const tMinR = Math.min(...targets.map(t => t.r));
+    const tMaxR = Math.max(...targets.map(t => t.r));
+    const tMinC = Math.min(...targets.map(t => t.c));
+    const tMaxC = Math.max(...targets.map(t => t.c));
+    
+    const isVerticalFill = tMaxR > sMaxR || tMinR < sMinR;
+    const isHorizontalFill = tMaxC > sMaxC || tMinC < sMinC;
+    
+    // For simplicity, we process row-wise if vertical, col-wise if horizontal
+    // Group targets into lanes (columns if vertical, rows if horizontal)
+    if (isVerticalFill) {
+        for (let col = sMinC; col <= sMaxC; col++) {
+            const laneSources = sources.filter(s => s.c === col).sort((a,b) => a.r - b.r);
+            const laneTargets = targets.filter(t => t.c === col).sort((a,b) => a.r - b.r);
+            if (laneSources.length === 0 || laneTargets.length === 0) continue;
+            
+            // Check if lane is a numeric series
+            let isNumericSeries = false;
+            let delta = 0;
+            if (laneSources.length > 1) {
+                const vals = laneSources.map(s => {
+                    const cell = state.getCell(s.id);
+                    return cell && typeof cell.value === 'number' && !cell.formula ? cell.value : null;
+                });
+                if (vals.every(v => v !== null)) {
+                    isNumericSeries = true;
+                    delta = (vals[vals.length - 1] as number) - (vals[vals.length - 2] as number);
+                }
+            }
+            
+            laneTargets.forEach((target, index) => {
+                const srcIdx = index % laneSources.length;
+                const source = laneSources[srcIdx];
+                const sourceCell = state.getCell(source.id);
+                if (!sourceCell) return;
+                
+                if (sourceCell.formula) {
+                    const rowOffset = target.r - source.r;
+                    const newFormula = shiftFormulaByOffset(sourceCell.formula, 0, rowOffset);
+                    state.setCell(target.id, { value: newFormula, formula: newFormula, format: {...sourceCell.format} });
+                } else if (isNumericSeries) {
+                    const lastVal = state.getCell(laneSources[laneSources.length - 1].id)?.value as number;
+                    const iterations = index + 1;
+                    const newVal = lastVal + (delta * iterations);
+                    state.setCell(target.id, { value: newVal, formula: undefined, format: {...sourceCell.format} });
+                } else {
+                    state.setCell(target.id, { value: sourceCell.value, formula: undefined, format: {...sourceCell.format} });
+                }
+            });
+        }
+    } else if (isHorizontalFill) {
+        // Similar logic for horizontal fills
+        for (let row = sMinR; row <= sMaxR; row++) {
+            const laneSources = sources.filter(s => s.r === row).sort((a,b) => a.c - b.c);
+            const laneTargets = targets.filter(t => t.r === row).sort((a,b) => a.c - b.c);
+            if (laneSources.length === 0 || laneTargets.length === 0) continue;
+            
+            let isNumericSeries = false;
+            let delta = 0;
+            if (laneSources.length > 1) {
+                const vals = laneSources.map(s => {
+                    const cell = state.getCell(s.id);
+                    return cell && typeof cell.value === 'number' && !cell.formula ? cell.value : null;
+                });
+                if (vals.every(v => v !== null)) {
+                    isNumericSeries = true;
+                    delta = (vals[vals.length - 1] as number) - (vals[vals.length - 2] as number);
+                }
+            }
+            
+            laneTargets.forEach((target, index) => {
+                const srcIdx = index % laneSources.length;
+                const source = laneSources[srcIdx];
+                const sourceCell = state.getCell(source.id);
+                if (!sourceCell) return;
+                
+                if (sourceCell.formula) {
+                    const colOffset = target.c - source.c;
+                    const newFormula = shiftFormulaByOffset(sourceCell.formula, colOffset, 0);
+                    state.setCell(target.id, { value: newFormula, formula: newFormula, format: {...sourceCell.format} });
+                } else if (isNumericSeries) {
+                    const lastVal = state.getCell(laneSources[laneSources.length - 1].id)?.value as number;
+                    const iterations = index + 1;
+                    const newVal = lastVal + (delta * iterations);
+                    state.setCell(target.id, { value: newVal, formula: undefined, format: {...sourceCell.format} });
+                } else {
+                    state.setCell(target.id, { value: sourceCell.value, formula: undefined, format: {...sourceCell.format} });
+                }
+            });
+        }
+    }
+    
+    state.markDirty();
+};

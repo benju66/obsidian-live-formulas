@@ -1,5 +1,45 @@
 /* Live Table Formulas — scoped under .live-formula-wrapper */
 
+.live-formula-autocomplete-popover {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: auto;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border-hover);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    min-width: 250px;
+    max-width: 400px;
+}
+
+.live-formula-autocomplete-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.live-formula-autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.live-formula-autocomplete-item:hover,
+.live-formula-autocomplete-item.is-active {
+    background-color: var(--background-modifier-hover);
+}
+
+.live-formula-autocomplete-name {
+    font-weight: bold;
+    font-size: 0.9em;
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+}
+
+.live-formula-autocomplete-desc {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
 .live-formula-wrapper {
     position: relative;
     padding-right: 28px;
@@ -251,7 +291,7 @@
     cursor: pointer;
     color: var(--text-muted);
     opacity: 0;
-    transition: opacity 0.2s ease, background 0.2s ease;
+    transition: background 0.2s ease;
     font-size: 16px;
     font-weight: bold;
 }
@@ -374,4 +414,22 @@ td.live-formula-row-head.is-active-header {
 .is-selected-header {
     background-color: var(--text-selection) !important;
     color: var(--text-normal) !important;
+}
+
+/* Tooltip styles */
+.live-formula-tooltip {
+    padding: 6px 10px;
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    color: var(--text-normal);
+}
+
+.live-formula-tooltip strong {
+    color: var(--text-accent);
+}
+
+.live-formula-tooltip .is-active-arg {
+    font-weight: bold;
+    color: var(--text-accent);
+    text-decoration: underline;
 }

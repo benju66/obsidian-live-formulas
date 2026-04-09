@@ -5,7 +5,7 @@ export class SelectionManager {
     public onSelectionChange: ((activeId: string | null) => void) | null = null;
     public onUndo: (() => void) | null = null;
     public onRedo: (() => void) | null = null;
-    public onFillRange: ((sourceId: string, targetIds: string[]) => void) | null = null;
+    public onFillRange: ((sourceIds: string[], targetIds: string[]) => void) | null = null;
 
     private selectedIds = new Set<string>();
     private activeCellId: string | null = null;
@@ -13,6 +13,11 @@ export class SelectionManager {
     private startDragId: string | null = null;
     private isFilling = false;
     private fillTargetIds = new Set<string>();
+
+    private isFormulaDragging = false;
+    private formulaInputTarget: HTMLInputElement | HTMLTextAreaElement | null = null;
+    private formulaDragPrefix = '';
+    private formulaDragSuffix = '';
 
     public getActiveCellId() {
         return this.activeCellId;
@@ -40,32 +45,88 @@ export class SelectionManager {
         let textBefore = val.substring(0, start);
         const textAfter = val.substring(end);
 
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
         // Handle Shift+Click (Range Selection)
         if (e.shiftKey) {
             // Check if the cursor is immediately after an existing cell or range (e.g., "A1" or "A1:B1")
             const rangeMatch = textBefore.match(/([A-Z]+\d+)(?::[A-Z]+\d+)?$/i);
             if (rangeMatch && rangeMatch.index !== undefined) {
-                const startCell = rangeMatch[1];
-                const injection = `${startCell}:${cellId}`;
+                const newRange = `${rangeMatch[1]}:${cellId}`;
                 textBefore = textBefore.substring(0, rangeMatch.index);
 
-                inputEl.value = textBefore + injection + textAfter;
-                inputEl.setSelectionRange(textBefore.length + injection.length, textBefore.length + injection.length);
-                inputEl.focus();
+                this.formulaDragPrefix = textBefore;
+                this.formulaDragSuffix = textAfter;
+                this.startDragId = rangeMatch[1]; // Anchor is the start of the range
+
+                this.selectRange(this.startDragId, cellId);
+
+                inputEl.value = textBefore + newRange + textAfter;
+                inputEl.setSelectionRange(textBefore.length + newRange.length, textBefore.length + newRange.length);
+                inputEl.focus({ preventScroll: true });
                 inputEl.dispatchEvent(new Event('input'));
                 return;
             }
         }
 
-        // Handle Normal/Ctrl Click (Single Cell Selection)
+        if (cmdOrCtrl) {
+            if (this.selectedIds.has(cellId)) {
+                this.selectedIds.delete(cellId);
+                let currentVal = inputEl.value;
+                const regex1 = new RegExp(`,\\s*${cellId}\\b`, 'i');
+                const regex2 = new RegExp(`\\b${cellId}\\s*,`, 'i');
+                const regex3 = new RegExp(`\\b${cellId}\\b`, 'i');
+                
+                if (regex1.test(currentVal)) {
+                    currentVal = currentVal.replace(regex1, '');
+                } else if (regex2.test(currentVal)) {
+                    currentVal = currentVal.replace(regex2, '');
+                } else {
+                    currentVal = currentVal.replace(regex3, '');
+                }
+                
+                inputEl.value = currentVal;
+                inputEl.setSelectionRange(currentVal.length, currentVal.length);
+                this.renderSelection();
+                inputEl.focus({ preventScroll: true });
+                inputEl.dispatchEvent(new Event('input'));
+                return;
+            } else {
+                this.selectedIds.add(cellId);
+                this.renderSelection();
+
+                const prevChar = textBefore.charAt(textBefore.length - 1);
+                const needsComma = !!prevChar && !['(', '=', '+', '-', '*', '/', ',', ':'].includes(prevChar);
+                const prefix = textBefore + (needsComma ? ',' : '');
+
+                this.formulaDragPrefix = prefix;
+                this.formulaDragSuffix = textAfter;
+                this.startDragId = cellId;
+
+                inputEl.value = prefix + cellId + textAfter;
+                inputEl.setSelectionRange(prefix.length + cellId.length, prefix.length + cellId.length);
+                inputEl.focus({ preventScroll: true });
+                inputEl.dispatchEvent(new Event('input'));
+                return;
+            }
+        }
+
+        // Handle Normal Click (Single Cell Selection)
         const prevChar = textBefore.charAt(textBefore.length - 1);
         // We only need a comma if the previous char exists and is NOT an operator or bracket
         const needsComma = !!prevChar && !['(', '=', '+', '-', '*', '/', ',', ':'].includes(prevChar);
-        const injection = needsComma ? `,${cellId}` : cellId;
+        const prefix = textBefore + (needsComma ? ',' : '');
 
-        inputEl.value = textBefore + injection + textAfter;
-        inputEl.setSelectionRange(textBefore.length + injection.length, textBefore.length + injection.length);
-        inputEl.focus();
+        this.formulaDragPrefix = prefix;
+        this.formulaDragSuffix = textAfter;
+        this.startDragId = cellId; // Anchor is the clicked cell
+
+        this.selectRange(cellId, cellId);
+
+        inputEl.value = prefix + cellId + textAfter;
+        inputEl.setSelectionRange(prefix.length + cellId.length, prefix.length + cellId.length);
+        inputEl.focus({ preventScroll: true });
         inputEl.dispatchEvent(new Event('input'));
     }
 
@@ -82,6 +143,7 @@ export class SelectionManager {
 
     private attachListeners() {
         this.wrapper.addEventListener('mousedown', this.onMouseDown);
+        this.wrapper.addEventListener('dblclick', this.onDoubleClick);
         this.wrapper.addEventListener('mouseover', this.onMouseOver);
         window.addEventListener('mouseup', this.onMouseUp);
         this.wrapper.addEventListener('keydown', this.onKeyDown);
@@ -106,6 +168,80 @@ export class SelectionManager {
         return /[\+\-\*\/\=\,\:\<\>\&]\s*$/.test(textBefore);
     }
 
+    private onDoubleClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (target.classList.contains('live-formula-drag-handle')) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (this.selectedIds.size === 0 || !this.activeCellId) return;
+            
+            // Find adjacent column to the left, then to the right, to figure out fill bounds
+            const activeMatch = this.activeCellId.match(/^([A-Z]+)(\d+)$/i);
+            if (!activeMatch) return;
+            
+            const activeColLetters = activeMatch[1];
+            const activeColIdx = lettersToColumnIndex(activeColLetters);
+            let activeMaxRow = parseInt(activeMatch[2], 10);
+            
+            // Calculate height of selected source block
+            let sourceMaxRow = activeMaxRow;
+            for (const sid of this.selectedIds) {
+                const sm = sid.match(/^([A-Z]+)(\d+)$/i);
+                if (sm) {
+                    const row = parseInt(sm[2], 10);
+                    if (row > sourceMaxRow) sourceMaxRow = row;
+                }
+            }
+            
+            let maxTargetRow = sourceMaxRow;
+            
+            // Check left neighbor first, then right neighbor
+            const checkCol = (colIdx: number) => {
+                if (colIdx < 1 || colIdx > this.state.maxCol) return 0;
+                const colLetters = columnIndexToLetters(colIdx);
+                let rowCount = 0;
+                for (let r = 1; r <= this.state.maxRow; r++) {
+                    const cell = this.state.getCell(`${colLetters}${r}`);
+                    if (cell && cell.value !== '' && cell.value !== null && cell.value !== undefined) {
+                        rowCount = r;
+                    }
+                }
+                return rowCount;
+            };
+            
+            const leftCount = checkCol(activeColIdx - 1);
+            let fillTarget = leftCount;
+            if (fillTarget <= sourceMaxRow) {
+                const rightCount = checkCol(activeColIdx + 1);
+                fillTarget = rightCount;
+            }
+            
+            if (fillTarget > sourceMaxRow) {
+                const newTargets: string[] = [];
+                // Push current selection first
+                for (const sid of this.selectedIds) newTargets.push(sid);
+                
+                // Then construct targets moving downwards
+                const rowDelta = fillTarget - sourceMaxRow;
+                
+                for (const sid of this.selectedIds) {
+                    const sm = sid.match(/^([A-Z]+)(\d+)$/i);
+                    if (sm) {
+                        const baseCol = sm[1];
+                        const baseRow = parseInt(sm[2], 10);
+                        for (let offset = 1; offset <= rowDelta; offset++) {
+                            newTargets.push(`${baseCol}${baseRow + offset}`);
+                        }
+                    }
+                }
+                
+                this.onFillRange?.(Array.from(this.selectedIds), newTargets);
+            }
+            return;
+        }
+    };
+
     private onMouseDown = (e: MouseEvent) => {
         if (e.button !== 0) return;
 
@@ -127,6 +263,8 @@ export class SelectionManager {
                 if (this.shouldInjectCellReference(this.editor.el)) {
                     const cellId = td.getAttribute('data-cell-id');
                     if (cellId) {
+                        this.isFormulaDragging = true;
+                        this.formulaInputTarget = this.editor.el;
                         this.handleFormulaClick(e, cellId, this.editor.el);
                     }
                     return; // Keep focus in editor
@@ -146,6 +284,8 @@ export class SelectionManager {
             if (cellId) {
                 if (activeEl.value.startsWith('=')) {
                     if (this.shouldInjectCellReference(activeEl)) {
+                        this.isFormulaDragging = true;
+                        this.formulaInputTarget = activeEl;
                         this.handleFormulaClick(e, cellId, activeEl);
                         return;
                     } else {
@@ -158,7 +298,7 @@ export class SelectionManager {
                     const end = activeEl.selectionEnd ?? activeEl.value.length;
                     activeEl.value = activeEl.value.substring(0, start) + cellId + activeEl.value.substring(end);
                     activeEl.setSelectionRange(start + cellId.length, start + cellId.length);
-                    activeEl.focus();
+                    activeEl.focus({ preventScroll: true });
                     activeEl.dispatchEvent(new Event('input'));
                     return;
                 }
@@ -214,6 +354,7 @@ export class SelectionManager {
         }
     };
 
+
     private onMouseOver = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         const td = target.closest('.live-formula-cell') as HTMLElement;
@@ -252,6 +393,34 @@ export class SelectionManager {
             return;
         }
 
+        if (this.isFormulaDragging && this.startDragId && this.formulaInputTarget) {
+            const match1 = this.startDragId.match(/^([A-Z]+)(\d+)$/i);
+            const match2 = hoverId.match(/^([A-Z]+)(\d+)$/i);
+            if (!match1 || !match2) return;
+
+            const c1 = lettersToColumnIndex(match1[1]);
+            const r1 = parseInt(match1[2], 10);
+            const c2 = lettersToColumnIndex(match2[1]);
+            const r2 = parseInt(match2[2], 10);
+
+            const minCol = Math.min(c1, c2);
+            const maxCol = Math.max(c1, c2);
+            const minRow = Math.min(r1, r2);
+            const maxRow = Math.max(r1, r2);
+
+            const startStr = `${columnIndexToLetters(minCol)}${minRow}`;
+            const endStr = `${columnIndexToLetters(maxCol)}${maxRow}`;
+            const rangeStr = startStr === endStr ? startStr : `${startStr}:${endStr}`;
+
+            this.formulaInputTarget.value = this.formulaDragPrefix + rangeStr + this.formulaDragSuffix;
+            const cursorPos = this.formulaDragPrefix.length + rangeStr.length;
+            this.formulaInputTarget.setSelectionRange(cursorPos, cursorPos);
+            this.formulaInputTarget.dispatchEvent(new Event('input'));
+            
+            this.selectRange(startStr, endStr);
+            return;
+        }
+
         if (this.isDragging && this.startDragId) {
             this.selectRange(this.startDragId, hoverId);
             this.onSelectionChange?.(this.activeCellId);
@@ -260,10 +429,12 @@ export class SelectionManager {
 
     private onMouseUp = () => {
         this.isDragging = false;
+        this.isFormulaDragging = false;
+        this.formulaInputTarget = null;
         if (this.isFilling) {
             this.isFilling = false;
-            if (this.fillTargetIds.size > 0 && this.activeCellId && this.onFillRange) {
-                this.onFillRange(this.activeCellId, Array.from(this.fillTargetIds));
+            if (this.fillTargetIds.size > 0 && this.selectedIds.size > 0 && this.onFillRange) {
+                this.onFillRange(Array.from(this.selectedIds), Array.from(this.fillTargetIds));
             }
             this.fillTargetIds.clear();
             this.renderSelection();
@@ -495,6 +666,32 @@ export class SelectionManager {
         this.renderSelection();
         this.onSelectionChange?.(this.activeCellId);
         this.wrapper.focus({ preventScroll: true });
+    }
+    
+    public handlePointNavigation(direction: 'Up' | 'Down' | 'Left' | 'Right', shiftKey: boolean) {
+        if (!this.editor.pointMode || !this.editor.pointCellId) return;
+        
+        const match = this.editor.pointCellId.match(/^([A-Z]+)(\d+)$/i);
+        if (!match) return;
+
+        let r = parseInt(match[2], 10);
+        let c = lettersToColumnIndex(match[1]);
+
+        if (direction === 'Up') r = Math.max(1, r - 1);
+        else if (direction === 'Down') r = Math.min(this.state.maxRow, r + 1);
+        else if (direction === 'Left') c = Math.max(1, c - 1);
+        else if (direction === 'Right') c = Math.min(this.state.maxCol, c + 1);
+
+        const newId = `${columnIndexToLetters(c)}${r}`;
+        
+        this.editor.updatePointReference(newId);
+        
+        // Visually show the point mode selection box
+        this.wrapper.querySelectorAll('.is-copied-highlight').forEach(el => el.classList.remove('is-copied-highlight'));
+        const td = this.wrapper.querySelector(`td[data-cell-id="${newId}"]`) as HTMLElement;
+        if (td) {
+            td.classList.add('is-copied-highlight'); // Use the dashed border natively
+        }
     }
 
     private onKeyDown = (e: KeyboardEvent) => {

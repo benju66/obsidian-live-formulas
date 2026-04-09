@@ -12,6 +12,7 @@ import {
     openCellContextMenu,
     type TableMenuServices,
 } from './src/contextMenu';
+import { FormulaAutocomplete } from './src/formulaAutocomplete';
 
 const balanceFormulaParens = (formula: string): string => {
     if (!formula.startsWith('=')) return formula;
@@ -24,7 +25,13 @@ const balanceFormulaParens = (formula: string): string => {
     return formula;
 };
 
-const GLOBAL_SELECTION_CACHE = new Map<string, { activeCellId: string | null; selectedIds: string[] }>();
+interface SelectionCache {
+    timestamp: number;
+    activeCellId: string | null;
+    selectedIds: string[];
+}
+
+export const globalSelectionCache = new Map<string, SelectionCache>();
 
 export const renderTableUI = (
     el: HTMLElement,
@@ -69,6 +76,17 @@ export const renderTableUI = (
             st.redoStack = [];
             lastSnapshot = current;
         }
+        
+        if (typeof selectionManager !== 'undefined' && selectionManager) {
+            const cache = {
+                timestamp: Date.now(),
+                activeCellId: selectionManager.getActiveCellId(),
+                selectedIds: selectionManager.getSelectedIds(),
+            };
+            globalSelectionCache.set(state.id, cache);
+            statefulEl.__liveTableSelection = cache;
+        }
+
         saveStateToFile();
     };
 
@@ -112,6 +130,16 @@ export const renderTableUI = (
     }
     const formulaBarInput = formulaBarWrapper.createEl('input', { type: 'text', cls: 'live-formula-formula-bar-input' });
     formulaBarInput.disabled = true;
+
+    const formulaBarAutocomplete = new FormulaAutocomplete();
+    
+    // Attach immediately, but we will call onInput when typing
+    formulaBarInput.addEventListener('focus', () => {
+        formulaBarAutocomplete.attach(formulaBarInput);
+    });
+    formulaBarInput.addEventListener('blur', () => {
+        formulaBarAutocomplete.detach();
+    });
 
     const tableScroll = container.createEl('div', { cls: 'live-formula-table-scroll' });
     const table = tableScroll.createEl('table', { cls: 'live-formula-table' });
@@ -194,6 +222,10 @@ export const renderTableUI = (
     selectionManager = new SelectionManager(wrapper, state, cellEditor, () => {
         saveWithHistory();
     });
+    
+    cellEditor.onPointNavigate = (direction, shiftKey) => {
+        selectionManager.handlePointNavigation(direction, shiftKey);
+    };
 
     const clipboard = createClipboardManager({
         state,
@@ -250,16 +282,17 @@ export const renderTableUI = (
     });
 
     // Handle Drag-to-Fill execution
-    selectionManager.onFillRange = (sourceId: string, targetIds: string[]) => {
+    selectionManager.onFillRange = (sourceIds: string[], targetIds: string[]) => {
         let changed = false;
         const cellsToRefresh = new Set<string>();
 
-        for (const targetId of targetIds) {
-            if (targetId !== sourceId) {
-                Actions.fillFormulaToRange(state, sourceId, targetId);
-                changed = true;
-                cellsToRefresh.add(targetId);
-            }
+        // Remove sourceIds from targetIds to only process the newly filled cells
+        const newTargets = targetIds.filter(t => !sourceIds.includes(t));
+        
+        if (newTargets.length > 0 && sourceIds.length > 0) {
+            Actions.fillSmartSeries(state, sourceIds, newTargets);
+            changed = true;
+            for (const t of newTargets) cellsToRefresh.add(t);
         }
 
         if (changed) {
@@ -277,7 +310,7 @@ export const renderTableUI = (
 
             cellsToRefresh.forEach((id) => refreshCellDisplay(id));
 
-            selectionManager.restoreSelection(sourceId, targetIds);
+            selectionManager.restoreSelection(sourceIds[0], targetIds);
             saveWithHistory();
         }
     };
@@ -295,7 +328,9 @@ export const renderTableUI = (
             GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            });
+            };
+            statefulEl.__liveTableSelection = cache;
+            globalSelectionCache.set(state.id, { timestamp: Date.now(), ...cache });
 
             rerender();
         }
@@ -313,7 +348,9 @@ export const renderTableUI = (
             GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            });
+            };
+            statefulEl.__liveTableSelection = cache;
+            globalSelectionCache.set(state.id, { timestamp: Date.now(), ...cache });
 
             rerender();
         }
@@ -376,6 +413,8 @@ export const renderTableUI = (
                 }
             }
         }
+        
+        formulaBarAutocomplete.onInput();
     });
 
     // 3. Draw the Display Grid (Plain HTML TDs, no Textareas)
@@ -442,17 +481,19 @@ export const renderTableUI = (
     }
 
     const destroy = () => {
+        formulaBarAutocomplete.destroy();
         cellEditor.destroy();
         selectionManager.destroy();
     };
 
     selectionManager.onSelectionChange = (activeId) => {
         const selectedIds = selectionManager.getSelectedIds();
-        if (!activeId && selectedIds.length === 0) {
-            GLOBAL_SELECTION_CACHE.delete(state.id);
-        } else {
-            GLOBAL_SELECTION_CACHE.set(state.id, { activeCellId: activeId, selectedIds });
-        }
+        const cache = {
+            activeCellId: activeId,
+            selectedIds,
+        };
+        statefulEl.__liveTableSelection = cache;
+        globalSelectionCache.set(state.id, { timestamp: Date.now(), ...cache });
 
         if (settings.showStatusBar !== false) {
             statusBar.style.display = 'flex';
@@ -501,10 +542,17 @@ export const renderTableUI = (
         formulaBarInput.value = raw === undefined || raw === null ? '' : raw.toString();
     };
 
-    const cachedSelection = GLOBAL_SELECTION_CACHE.get(state.id);
-    if (cachedSelection && (cachedSelection.activeCellId || cachedSelection.selectedIds.length > 0)) {
-        selectionManager.restoreSelection(cachedSelection.activeCellId, cachedSelection.selectedIds);
+    if (statefulEl.__liveTableSelection) {
+        const saved = statefulEl.__liveTableSelection;
+        selectionManager.restoreSelection(saved.activeCellId, saved.selectedIds);
         setTimeout(() => wrapper.focus({ preventScroll: true }), 10);
+    } else {
+        const rc = globalSelectionCache.get(state.id);
+        if (rc && Date.now() - rc.timestamp < 1000) {
+            selectionManager.restoreSelection(rc.activeCellId, rc.selectedIds);
+            setTimeout(() => wrapper.focus({ preventScroll: true }), 10);
+            globalSelectionCache.delete(state.id);
+        }
     }
 
     formulaBarInput.addEventListener('keydown', (e) => {
@@ -546,6 +594,7 @@ export const renderTableUI = (
 
             wrapper.focus({ preventScroll: true });
             saveWithHistory();
+            wrapper.focus({ preventScroll: true });
         }
     });
 
@@ -588,7 +637,9 @@ export const renderTableUI = (
             GLOBAL_SELECTION_CACHE.set(state.id, {
                 activeCellId: selectionManager.getActiveCellId(),
                 selectedIds: selectionManager.getSelectedIds(),
-            });
+            };
+            statefulEl.__liveTableSelection = cache;
+            globalSelectionCache.set(state.id, { timestamp: Date.now(), ...cache });
 
             saveWithHistory();
             setTimeout(() => {

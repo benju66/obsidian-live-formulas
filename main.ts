@@ -70,6 +70,23 @@ export default class LiveFormulasPlugin extends Plugin {
             (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
                 const state = TableState.parseBlockSource(source);
 
+                const replaceWithoutScroll = (editor: Editor, text: string, fromLine: number, toLine: number) => {
+                    const from = { line: fromLine, ch: 0 };
+                    const to = { line: toLine, ch: editor.getLine(toLine).length };
+                    
+                    const cm = (editor as any).cm;
+                    if (cm && typeof cm.dispatch === 'function') {
+                        const fromOffset = editor.posToOffset(from);
+                        const toOffset = editor.posToOffset(to);
+                        cm.dispatch({
+                            changes: { from: fromOffset, to: toOffset, insert: text },
+                            scrollIntoView: false
+                        });
+                    } else {
+                        editor.replaceRange(text, from, to);
+                    }
+                };
+
                 const performSave = () => {
                     if (!state.dirty) return;
 
@@ -84,15 +101,100 @@ export default class LiveFormulasPlugin extends Plugin {
                         const md = state.toMarkdownText();
                         state.clearDirty();
 
-                        void this.app.vault.process(file, (data) => {
-                            const lines = data.split('\n');
-                            const newLines = md.split('\n');
-                            const tableIdString = `"id":"${state.id}"`;
+                        if (
+                            openLine.trimStart().startsWith('```live-table') &&
+                            closeLine.trimStart().startsWith('```')
+                        ) {
+                            replaceWithoutScroll(editor, blockText, sectionHint.lineStart, sectionHint.lineEnd);
+                            return;
+                        }
 
                             let foundStart = -1;
                             let foundEnd = -1;
 
-                            for (let i = 0; i < lines.length; i++) {
+                        const tableIdString = `"id":"${state.id}"`;
+                        const lineCount = editor.lineCount();
+
+                        for (let i = sectionHint.lineStart; i >= 0 && i < lineCount; i--) {
+                            if (editor.getLine(i).trimStart().startsWith('```live-table')) {
+                                const nextLine = editor.getLine(i + 1) || '';
+                                if (nextLine.includes(tableIdString)) {
+                                    foundStart = i;
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundStart === -1) {
+                            for (let i = sectionHint.lineStart + 1; i < lineCount; i++) {
+                                if (editor.getLine(i).trimStart().startsWith('```live-table')) {
+                                    const nextLine = editor.getLine(i + 1) || '';
+                                    if (nextLine.includes(tableIdString)) {
+                                        foundStart = i;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1) {
+                            for (let i = foundStart + 1; i < lineCount; i++) {
+                                if (editor.getLine(i).trimStart().startsWith('```')) {
+                                    foundEnd = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foundStart !== -1 && foundEnd !== -1) {
+                            replaceWithoutScroll(editor, blockText, foundStart, foundEnd);
+                            return;
+                        }
+
+                        console.warn(
+                            'Live Formulas: Could not locate table block in Editor after document shift. Aborting save.'
+                        );
+                        new Notice(
+                            'Live Formulas: Document shifted drastically. Save aborted to prevent data loss. Please manually re-trigger save.'
+                        );
+                        state.markDirty();
+                        return;
+                    }
+
+                    void this.app.vault.process(file, (data) => {
+                        const lines = data.split('\n');
+                        const newLines = md.split('\n');
+
+                        const openLine = lines[sectionHint.lineStart] ?? '';
+                        const closeLine = lines[sectionHint.lineEnd] ?? '';
+
+                        if (
+                            openLine.trimStart().startsWith('```live-table') &&
+                            closeLine.trimStart().startsWith('```')
+                        ) {
+                            lines.splice(
+                                sectionHint.lineStart + 1,
+                                sectionHint.lineEnd - sectionHint.lineStart - 1,
+                                ...newLines
+                            );
+                            return lines.join('\n');
+                        }
+
+                        let foundStart = -1;
+                        let foundEnd = -1;
+
+                        const tableIdString = `"id":"${state.id}"`;
+
+                        for (let i = sectionHint.lineStart; i >= 0 && i < lines.length; i--) {
+                            if (lines[i].trimStart().startsWith('```live-table')) {
+                                const nextLine = lines[i + 1] || '';
+                                if (nextLine.includes(tableIdString)) {
+                                    foundStart = i;
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundStart === -1) {
+                            for (let i = sectionHint.lineStart + 1; i < lines.length; i++) {
                                 if (lines[i].trimStart().startsWith('```live-table')) {
                                     const nextLine = lines[i + 1] || '';
                                     if (nextLine.includes(tableIdString)) {
