@@ -73,6 +73,23 @@ export default class LiveFormulasPlugin extends Plugin {
             (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
                 const state = TableState.parseBlockSource(source);
 
+                const replaceWithoutScroll = (editor: Editor, text: string, fromLine: number, toLine: number) => {
+                    const from = { line: fromLine, ch: 0 };
+                    const to = { line: toLine, ch: editor.getLine(toLine).length };
+                    
+                    const cm = (editor as any).cm;
+                    if (cm && typeof cm.dispatch === 'function') {
+                        const fromOffset = editor.posToOffset(from);
+                        const toOffset = editor.posToOffset(to);
+                        cm.dispatch({
+                            changes: { from: fromOffset, to: toOffset, insert: text },
+                            scrollIntoView: false
+                        });
+                    } else {
+                        editor.replaceRange(text, from, to);
+                    }
+                };
+
                 const performSave = () => {
                     if (!state.dirty) return;
                     const sectionHint = ctx.getSectionInfo(el);
@@ -97,11 +114,7 @@ export default class LiveFormulasPlugin extends Plugin {
                             openLine.trimStart().startsWith('```live-table') &&
                             closeLine.trimStart().startsWith('```')
                         ) {
-                            editor.replaceRange(
-                                blockText,
-                                { line: sectionHint.lineStart, ch: 0 },
-                                { line: sectionHint.lineEnd, ch: closeLine.length }
-                            );
+                            replaceWithoutScroll(editor, blockText, sectionHint.lineStart, sectionHint.lineEnd);
                             return;
                         }
 
@@ -142,11 +155,7 @@ export default class LiveFormulasPlugin extends Plugin {
                         }
 
                         if (foundStart !== -1 && foundEnd !== -1) {
-                            editor.replaceRange(
-                                blockText,
-                                { line: foundStart, ch: 0 },
-                                { line: foundEnd, ch: editor.getLine(foundEnd).length }
-                            );
+                            replaceWithoutScroll(editor, blockText, foundStart, foundEnd);
                             return;
                         }
 

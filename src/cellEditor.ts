@@ -1,5 +1,6 @@
 import { TableState } from '../tableState';
 import { MathEngine } from '../math';
+import { FormulaAutocomplete } from './formulaAutocomplete';
 
 const balanceFormulaParens = (formula: string): string => {
     if (!formula.startsWith('=')) return formula;
@@ -19,6 +20,11 @@ export class CellEditor {
     private activeCellId: string | null = null;
     private activeTd: HTMLElement | null = null;
     private isCommitting = false;
+    private autocomplete: FormulaAutocomplete;
+    public pointMode = false;
+    public pointCellId: string | null = null;
+    public pointTrackingData: { start: number, end: number, needsComma: boolean } | null = null;
+    public onPointNavigate?: (direction: 'Up' | 'Down' | 'Left' | 'Right', shiftKey: boolean) => void;
 
     constructor(
         private wrapper: HTMLElement,
@@ -27,6 +33,7 @@ export class CellEditor {
         private onSave: (updatedCellIds: string[], moveDirection?: CellEditorMoveDirection) => void,
         private onInput?: (val: string) => void
     ) {
+        this.autocomplete = new FormulaAutocomplete();
         this.el = document.createElement('textarea');
         this.el.className = 'live-formula-floating-editor';
         this.el.style.display = 'none';
@@ -34,7 +41,10 @@ export class CellEditor {
         this.wrapper.style.position = 'relative';
         this.wrapper.appendChild(this.el);
 
-        this.el.addEventListener('input', () => this.onInput?.(this.el.value));
+        this.el.addEventListener('input', () => {
+            this.onInput?.(this.el.value);
+            this.autocomplete.onInput();
+        });
 
         this.attachListeners();
     }
@@ -52,13 +62,46 @@ export class CellEditor {
         this.el.addEventListener('blur', () => this.commitAndClose());
 
         this.el.addEventListener('keydown', (e) => {
+            // Stop Obsidian from capturing shortcuts (fixing editing speed issues)
+            e.stopPropagation();
+
+            // Check if we implicitly enter Point Mode
+            const val = this.el.value;
+            const cursor = this.el.selectionStart ?? val.length;
+            const textBefore = val.substring(0, cursor);
+            const prevChar = textBefore.charAt(textBefore.length - 1);
+            const isAfterOperator = !!prevChar && ['(', '=', '+', '-', '*', '/', ',', ':'].includes(prevChar);
+
+            // An arrow key immediately following an operator puts us in point mode!
+            if (isAfterOperator || this.pointMode) {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    this.pointMode = true; // Lock into point mode
+                    const dir = e.key.replace('Arrow', '') as 'Up' | 'Down' | 'Left' | 'Right';
+                    
+                    if (!this.pointCellId) {
+                        this.pointCellId = this.activeCellId;
+                        const needsComma = !!prevChar && !['(', '=', '+', '-', '*', '/', ',', ':'].includes(prevChar);
+                        this.pointTrackingData = { start: cursor, end: cursor, needsComma };
+                    }
+                    
+                    this.onPointNavigate?.(dir, e.shiftKey);
+                    return;
+                }
+            }
+            
+            // Any normal keystroke that isn't pointing resets point mode!
+            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) {
+                this.pointMode = false;
+                this.pointCellId = null;
+                this.pointTrackingData = null;
+            }
+
             if (e.key === 'Enter') {
                 e.preventDefault();
-                e.stopPropagation();
                 this.commitAndClose(e.shiftKey ? 'Up' : 'Down');
             } else if (e.key === 'Tab') {
                 e.preventDefault();
-                e.stopPropagation();
                 this.commitAndClose(e.shiftKey ? 'Left' : 'Right');
             }
         });
@@ -70,8 +113,27 @@ export class CellEditor {
         const injection = needsComma ? `,${cellId}` : cellId;
         this.el.value = this.el.value.substring(0, start) + injection + this.el.value.substring(end);
         this.el.setSelectionRange(start + injection.length, start + injection.length);
-        this.el.focus();
+        this.el.focus({ preventScroll: true });
         this.onInput?.(this.el.value);
+    }
+    
+    public updatePointReference(newCellId: string) {
+        if (!this.pointTrackingData) return;
+        this.pointCellId = newCellId;
+        
+        const { start, end, needsComma } = this.pointTrackingData;
+        const injection = needsComma ? `,${newCellId}` : newCellId;
+        
+        const val = this.el.value;
+        this.el.value = val.substring(0, start) + injection + val.substring(end);
+        
+        const newEnd = start + injection.length;
+        this.el.setSelectionRange(newEnd, newEnd);
+        this.pointTrackingData.end = newEnd;
+        
+        this.el.focus({ preventScroll: true });
+        this.onInput?.(this.el.value);
+        this.autocomplete.onInput();
     }
 
     public open(cellId: string, td: HTMLElement, shouldFocus: boolean = true) {
@@ -102,10 +164,17 @@ export class CellEditor {
         this.onInput?.(this.el.value);
 
         if (shouldFocus) {
-            this.el.focus();
+            this.el.focus({ preventScroll: true });
             const len = this.el.value.length;
             this.el.setSelectionRange(len, len);
         }
+        
+        this.pointMode = false; // Default to Edit Mode when opening
+        this.pointCellId = null;
+        this.pointTrackingData = null;
+        
+        this.autocomplete.attach(this.el);
+        this.autocomplete.onInput();
     }
 
     public commitAndClose(moveDirection?: CellEditorMoveDirection) {
@@ -124,23 +193,29 @@ export class CellEditor {
             if (!isNaN(asNum)) parsed = asNum;
         }
 
-        if (typeof parsed === 'string' && parsed.startsWith('=')) {
-            cell.value = parsed;
-            cell.formula = parsed;
-        } else {
-            cell.value = parsed;
-            cell.formula = undefined;
+        const isFormula = typeof parsed === 'string' && parsed.startsWith('=');
+        const newFormula = isFormula ? (parsed as string) : undefined;
+        const newValueField = parsed;
+
+        const valueChanged = cell.formula !== newFormula || cell.value !== newValueField;
+
+        if (valueChanged) {
+            cell.value = newValueField;
+            cell.formula = newFormula;
+            this.state.setCell(cellId, cell);
+            this.state.markDirty();
         }
 
-        this.state.setCell(cellId, cell);
-        this.state.markDirty();
-
-        const { updated, cyclic } = this.engine.updateCellAndDependents(cellId);
-        const cellsToRefresh = cyclic ? [cellId] : updated.length > 0 ? updated : [cellId];
+        const cellsToRefresh: string[] = [];
+        if (valueChanged) {
+            const { updated, cyclic } = this.engine.updateCellAndDependents(cellId);
+            cellsToRefresh.push(...(cyclic ? [cellId] : updated.length > 0 ? updated : [cellId]));
+        }
 
         this.el.style.display = 'none';
         this.activeCellId = null;
         this.activeTd = null;
+        this.autocomplete.detach();
 
         this.onSave(cellsToRefresh, moveDirection);
 
@@ -150,6 +225,7 @@ export class CellEditor {
     }
 
     public destroy() {
+        this.autocomplete.destroy();
         this.el.remove();
     }
 }
